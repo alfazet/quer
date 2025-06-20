@@ -1,11 +1,12 @@
 #include <stdint.h>
 #include <string.h>
-#include <time.h>
 
 #include "bitset.h"
 
 #define ERR_AND_DIE(...) \
     (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
+
+static const char* USAGE_MSG = "Usage: ./qr <version>, 1 <= version <= 40";
 
 typedef struct rgb_color_t {
     uint8_t r;
@@ -23,7 +24,8 @@ void save_as_ppm(bitset_t* code, rgb_color_t* color, int module_size, char* file
     if (fprintf(file, "P6 %d %d 255\n", width, height) < 0)
         ERR_AND_DIE("fprintf");
 
-    uint8_t buf[3 * width * height];
+    // uint8_t buf[3 * width * height];
+    uint8_t* buf = malloc(3 * width * height * sizeof(uint8_t));
     memset(buf, 255, 3 * width * height * sizeof(uint8_t));
     for (int y = 0; y < height; y += module_size) {
         for (int x = 0; x < width; x += module_size) {
@@ -43,6 +45,7 @@ void save_as_ppm(bitset_t* code, rgb_color_t* color, int module_size, char* file
         if (fwrite(&buf[i], sizeof(buf[i]), 1, file) == 0)
             ERR_AND_DIE("fwrite");
     }
+    free(buf);
     if (fclose(file))
         ERR_AND_DIE("fclose");
 }
@@ -67,7 +70,7 @@ void draw_finder_pattern(bitset_t* code, int sx, int sy) {
 
 void draw_timing_patterns(bitset_t* code, int sx, int sy) {
     int x = sx + 7 + 1;
-    int y = sy + 7 - 1; 
+    int y = sy + 7 - 1;
     int flip = 1;
     for (; x < code->width - 7 - 1; x++) {
         if (flip == 1)
@@ -89,22 +92,56 @@ void draw_timing_patterns(bitset_t* code, int sx, int sy) {
     }
 }
 
-void draw_alignment_patterns(bitset_t* code) {
-
+int get_alignment_pattern_positions(int version, int positions[7]) {
+    if (version == 1)
+        return 0;
+    int count = version / 7 + 2;
+    int delta = (version * 8 + count * 3 + 5) / (count * 4 - 4) * 2;
+    int pos = version * 4 + 10;
+    for (int i = count - 1; i >= 1; i--) {
+        positions[i] = pos;
+        pos -= delta;
+    }
+    positions[0] = 6;
+    return count;
 }
 
-int main(void) {
-    srand(time(NULL));
+void draw_alignment_patterns(bitset_t* code, int version) {
+    int pos[7];
+    int count = get_alignment_pattern_positions(version, pos);
+    for (int i = 0; i < count; i++) {
+        for (int j = 0; j < count; j++) {
+            // these ones would overlap with the finder patterns
+            if ((i == 0 && j == 0) || (i == 0 && j == count - 1) || (i == count - 1 && j == 0))
+                continue;
 
-    int dim = 29;
+            for (int y = pos[i] - 2; y <= pos[i] + 2; y++) {
+                for (int x = pos[j] - 2; x <= pos[j] + 2; x++) {
+                    bitset_set(code, x, y);
+                }
+            }
+            for (int y = pos[i] - 1; y <= pos[i] + 1; y++) {
+                for (int x = pos[j] - 1; x <= pos[j] + 1; x++) {
+                    bitset_unset(code, x, y);
+                }
+            }
+            bitset_set(code, pos[j], pos[i]);
+        }
+    }
+}
+
+void draw_version_pattern(bitset_t* code, int version) {}
+
+int main(int argc, char** argv) {
+    if (argc != 2)
+        ERR_AND_DIE("%s\n", USAGE_MSG);
+    int version = atoi(argv[1]);
+    if (version < 1 || version > 40)
+        ERR_AND_DIE("%s\n", USAGE_MSG);
+
+    int dim = 4 * version + 17;
     bitset_t code;
     bitset_init(&code, dim, dim);
-    // for (int y = 0; y < dim; y++) {
-    //     for (int x = 0; x < dim; x++) {
-    //         if (rand() % 2 == 0)
-    //             bitset_set(&code, y, x);
-    //     }
-    // }
 
     // finder patterns
     int finder_coords_x[3] = {0, dim - 7, 0};
@@ -115,10 +152,12 @@ int main(void) {
     // timing patterns
     draw_timing_patterns(&code, finder_coords_x[0], finder_coords_y[0]);
     // alignment patterns
-    draw_alignment_patterns(&code);
+    draw_alignment_patterns(&code, version);
+    if (version >= 7)
+        draw_version_pattern(&code, version);
 
     rgb_color_t color = {.r = 128, .g = 0, .b = 128};
-    save_as_ppm(&code, &color, 20, "qr.ppm");
+    save_as_ppm(&code, &color, 20, "code.ppm");
     bitset_free(&code);
     return 0;
 }
