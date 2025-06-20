@@ -1,16 +1,17 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -Wpedantic -Wshadow
+CFLAGS=-Wall -Wextra -Wpedantic -Wshadow -g
 TARGET=qr.out
-OBJS=main.o
+OBJS=main.o bitset.o
 LD_LIBS=
+LD_FLAGS=-fsanitize=address,undefined -fanalyzer
 
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(LD_LIBS) $(CFLAGS) -o $@ $^
+	$(CC) $(LD_FLAGS) $(LD_LIBS) -o $@ $^
 
 %.o: %.c %.h
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -o $@ -c $<
 
 clean:
 	rm -f $(TARGET)
