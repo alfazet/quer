@@ -25,9 +25,6 @@ void save_as_ppm(bitset_t* code, rgb_color_t* color, int module_size, char* file
 
     uint8_t buf[3 * width * height];
     memset(buf, 255, 3 * width * height * sizeof(uint8_t));
-    buf[0] = 128;
-    buf[1] = 128;
-    buf[2] = 128;
     for (int y = 0; y < height; y += module_size) {
         for (int x = 0; x < width; x += module_size) {
             if (bitset_get(code, y / module_size, x / module_size) > 0) {
@@ -50,20 +47,78 @@ void save_as_ppm(bitset_t* code, rgb_color_t* color, int module_size, char* file
         ERR_AND_DIE("fclose");
 }
 
+void draw_finder_pattern(bitset_t* code, int sx, int sy) {
+    for (int y = 0; y < 7; y++) {
+        for (int x = 0; x < 7; x++) {
+            bitset_set(code, sx + x, sy + y);
+        }
+    }
+    for (int y = 0; y < 5; y++) {
+        for (int x = 0; x < 5; x++) {
+            bitset_unset(code, sx + x + 1, sy + y + 1);
+        }
+    }
+    for (int y = 0; y < 3; y++) {
+        for (int x = 0; x < 3; x++) {
+            bitset_set(code, sx + x + 2, sy + y + 2);
+        }
+    }
+}
+
+void draw_timing_patterns(bitset_t* code, int sx, int sy) {
+    int x = sx + 7 + 1;
+    int y = sy + 7 - 1; 
+    int flip = 1;
+    for (; x < code->width - 7 - 1; x++) {
+        if (flip == 1)
+            bitset_set(code, x, y);
+        else
+            bitset_unset(code, x, y);
+        flip ^= 1;
+    }
+
+    x = sx + 7 - 1;
+    y = sy + 7 + 1;
+    flip = 1;
+    for (; y < code->height - 7 - 1; y++) {
+        if (flip == 1)
+            bitset_set(code, x, y);
+        else
+            bitset_unset(code, x, y);
+        flip ^= 1;
+    }
+}
+
+void draw_alignment_patterns(bitset_t* code) {
+
+}
+
 int main(void) {
     srand(time(NULL));
 
-    int w = 29, h = 29;
-    bitset_t data;
-    bitset_init(&data, w, h);
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            if (rand() % 2 == 0)
-                bitset_set(&data, y, x);
-        }
+    int dim = 29;
+    bitset_t code;
+    bitset_init(&code, dim, dim);
+    // for (int y = 0; y < dim; y++) {
+    //     for (int x = 0; x < dim; x++) {
+    //         if (rand() % 2 == 0)
+    //             bitset_set(&code, y, x);
+    //     }
+    // }
+
+    // finder patterns
+    int finder_coords_x[3] = {0, dim - 7, 0};
+    int finder_coords_y[3] = {0, 0, dim - 7};
+    for (int i = 0; i < 3; i++) {
+        draw_finder_pattern(&code, finder_coords_x[i], finder_coords_y[i]);
     }
-    rgb_color_t color = {.r = 0, .g = 0, .b = 255};
-    save_as_ppm(&data, &color, 20, "colored.ppm");
-    bitset_free(&data);
+    // timing patterns
+    draw_timing_patterns(&code, finder_coords_x[0], finder_coords_y[0]);
+    // alignment patterns
+    draw_alignment_patterns(&code);
+
+    rgb_color_t color = {.r = 128, .g = 0, .b = 128};
+    save_as_ppm(&code, &color, 20, "qr.ppm");
+    bitset_free(&code);
     return 0;
 }
