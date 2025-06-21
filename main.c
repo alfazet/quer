@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "bitset.h"
@@ -6,7 +7,15 @@
 #define ERR_AND_DIE(...) \
     (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
 
-static const char* USAGE_MSG = "Usage: ./qr <version>, 1 <= version <= 40";
+static const char* USAGE_MSG = "Usage: ./qr <data> [error correction level]";
+// static const
+
+enum corr_level_t {
+    CORR_L,
+    CORR_M,
+    CORR_Q,
+    CORR_H,
+};
 
 typedef struct rgb_color_t {
     uint8_t r;
@@ -24,7 +33,6 @@ void save_as_ppm(bitset_t* code, rgb_color_t* color, int module_size, char* file
     if (fprintf(file, "P6 %d %d 255\n", width, height) < 0)
         ERR_AND_DIE("fprintf");
 
-    // uint8_t buf[3 * width * height];
     uint8_t* buf = malloc(3 * width * height * sizeof(uint8_t));
     memset(buf, 255, 3 * width * height * sizeof(uint8_t));
     for (int y = 0; y < height; y += module_size) {
@@ -133,11 +141,28 @@ void draw_alignment_patterns(bitset_t* code, int version) {
 void draw_version_pattern(bitset_t* code, int version) {}
 
 int main(int argc, char** argv) {
-    if (argc != 2)
-        ERR_AND_DIE("%s\n", USAGE_MSG);
-    int version = atoi(argv[1]);
-    if (version < 1 || version > 40)
-        ERR_AND_DIE("%s\n", USAGE_MSG);
+    if (argc < 2) {
+        printf("%s\n", USAGE_MSG);
+        return EXIT_FAILURE;
+    }
+    char* data = argv[1];
+    enum corr_level_t corr_level = CORR_M;
+    if (argc >= 3) {
+        char* flag = argv[2];
+        if (strcmp(flag, "-l") == 0)
+            corr_level = CORR_L;
+        if (strcmp(flag, "-m") == 0)
+            corr_level = CORR_M;
+        if (strcmp(flag, "-q") == 0)
+            corr_level = CORR_Q;
+        if (strcmp(flag, "-h") == 0)
+            corr_level = CORR_H;
+    }
+
+    int version = 1;
+    // find the lowest version with enough capacity for the given correction level
+    // https://www.thonky.com/qr-code-tutorial/character-capacities
+    // ...
 
     int dim = 4 * version + 17;
     bitset_t code;
@@ -159,5 +184,6 @@ int main(int argc, char** argv) {
     rgb_color_t color = {.r = 128, .g = 0, .b = 128};
     save_as_ppm(&code, &color, 20, "code.ppm");
     bitset_free(&code);
-    return 0;
+
+    return EXIT_SUCCESS;
 }
