@@ -8,7 +8,12 @@
     (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
 
 static const char* USAGE_MSG = "Usage: ./qr <data> [error correction level]";
-// static const
+static const int CAPS_CORR_L[40] = {17,   32,   53,   78,   106,  134,  154,  192,  230,  271,  321,  367,  425,  458,
+                                    520,  586,  644,  718,  792,  858,  929,  1003, 1091, 1171, 1273, 1367, 1465, 1528,
+                                    1628, 1732, 1840, 1952, 2068, 2188, 2303, 2431, 2563, 2699, 2809, 2953};
+static const int CAPS_CORR_M[40] = {14,   26,   42,   62,   84,   106,  122,  152,  180,  213,  251,  287,  331,  362,
+                                    412,  450,  504,  560,  624,  666,  711,  779,  857,  911,  997,  1059, 1125, 1190,
+                                    1264, 1370, 1452, 1538, 1628, 1722, 1809, 1911, 1989, 2099, 2213, 2331};
 
 enum corr_level_t {
     CORR_L,
@@ -23,23 +28,23 @@ typedef struct rgb_color_t {
     uint8_t b;
 } rgb_color_t;
 
-void save_as_ppm(bitset_t* code, rgb_color_t* color, int module_size, char* filename) {
+void save_as_ppm(bitset_t* code, rgb_color_t* color, int mod_sz, int padding, char* filename) {
     FILE* file = fopen(filename, "w");
     if (file == NULL)
         ERR_AND_DIE("fopen");
 
-    int width = code->width * module_size;
-    int height = code->height * module_size;
+    int width = (code->width + 2 * padding) * mod_sz;
+    int height = (code->height + 2 * padding) * mod_sz;
     if (fprintf(file, "P6 %d %d 255\n", width, height) < 0)
         ERR_AND_DIE("fprintf");
 
     uint8_t* buf = malloc(3 * width * height * sizeof(uint8_t));
     memset(buf, 255, 3 * width * height * sizeof(uint8_t));
-    for (int y = 0; y < height; y += module_size) {
-        for (int x = 0; x < width; x += module_size) {
-            if (bitset_get(code, y / module_size, x / module_size) > 0) {
-                for (int i = 0; i < module_size; i++) {
-                    for (int j = 0; j < 3 * module_size; j += 3) {
+    for (int y = padding * mod_sz; y < height - padding * mod_sz; y += mod_sz) {
+        for (int x = padding * mod_sz; x < width - padding * mod_sz; x += mod_sz) {
+            if (bitset_get(code, (y - padding * mod_sz) / mod_sz, (x - padding * mod_sz) / mod_sz) > 0) {
+                for (int i = 0; i < mod_sz; i++) {
+                    for (int j = 0; j < 3 * mod_sz; j += 3) {
                         int offset = 3 * width * (y + i) + 3 * x + j;
                         buf[offset + 0] = color->r;
                         buf[offset + 1] = color->g;
@@ -146,27 +151,43 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     char* data = argv[1];
+    int data_len = strlen(data);
     enum corr_level_t corr_level = CORR_M;
+    const int* max_cap = CAPS_CORR_M;
     if (argc >= 3) {
         char* flag = argv[2];
-        if (strcmp(flag, "-l") == 0)
+        if (strcmp(flag, "-l") == 0) {
             corr_level = CORR_L;
-        if (strcmp(flag, "-m") == 0)
+            max_cap = CAPS_CORR_L;
+        }
+        if (strcmp(flag, "-m") == 0) {
             corr_level = CORR_M;
-        if (strcmp(flag, "-q") == 0)
+            max_cap = CAPS_CORR_M;
+        }
+        if (strcmp(flag, "-q") == 0) {
             corr_level = CORR_Q;
-        if (strcmp(flag, "-h") == 0)
+            // max_cap = CAPS_CORR_Q;
+        }
+        if (strcmp(flag, "-h") == 0) {
             corr_level = CORR_H;
+            // max_cap = CAPS_CORR_H;
+        }
     }
 
-    int version = 1;
     // find the lowest version with enough capacity for the given correction level
     // https://www.thonky.com/qr-code-tutorial/character-capacities
-    // ...
+    int version = 1;
+    while (max_cap[version] < data_len)
+        version++;
+    int codewords_cap = max_cap[version];
 
     int dim = 4 * version + 17;
     bitset_t code;
     bitset_init(&code, dim, dim);
+
+    // turn data to a bitstring
+    // prepend metadata
+    // pad to capacity
 
     // finder patterns
     int finder_coords_x[3] = {0, dim - 7, 0};
@@ -182,7 +203,7 @@ int main(int argc, char** argv) {
         draw_version_pattern(&code, version);
 
     rgb_color_t color = {.r = 128, .g = 0, .b = 128};
-    save_as_ppm(&code, &color, 20, "code.ppm");
+    save_as_ppm(&code, &color, 20, 5, "code.ppm");
     bitset_free(&code);
 
     return EXIT_SUCCESS;
