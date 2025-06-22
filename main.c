@@ -8,12 +8,16 @@
     (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
 
 static const char* USAGE_MSG = "Usage: ./qr <data> [error correction level]";
-static const int CAPS_CORR_L[40] = {17,   32,   53,   78,   106,  134,  154,  192,  230,  271,  321,  367,  425,  458,
+static const int CAPS_CORR_L[41] = {0, 17,   32,   53,   78,   106,  134,  154,  192,  230,  271,  321,  367,  425,  458,
                                     520,  586,  644,  718,  792,  858,  929,  1003, 1091, 1171, 1273, 1367, 1465, 1528,
                                     1628, 1732, 1840, 1952, 2068, 2188, 2303, 2431, 2563, 2699, 2809, 2953};
-static const int CAPS_CORR_M[40] = {14,   26,   42,   62,   84,   106,  122,  152,  180,  213,  251,  287,  331,  362,
+static const int CAPS_CORR_M[41] = {0, 14,   26,   42,   62,   84,   106,  122,  152,  180,  213,  251,  287,  331,  362,
                                     412,  450,  504,  560,  624,  666,  711,  779,  857,  911,  997,  1059, 1125, 1190,
                                     1264, 1370, 1452, 1538, 1628, 1722, 1809, 1911, 1989, 2099, 2213, 2331};
+static const int TOTAL_CODEWORDS_L[41] = {0, 19,   34,   55,   80,   108,  136,  156,  194,  232,  274,
+                                          324,  370,  428,  461,  523,  589,  647,  721,  795,  861,
+                                          932,  1006, 1094, 1174, 1276, 1370, 1468, 1531, 1631, 1735,
+                                          1843, 1955, 2071, 2191, 2306, 2434, 2566, 2702, 2812, 2956};
 
 enum corr_level_t {
     CORR_L,
@@ -145,6 +149,58 @@ void draw_alignment_patterns(bitset_t* code, int version) {
 
 void draw_version_pattern(bitset_t* code, int version) {}
 
+// add lower n_bits of value to bitstream
+// fix this
+void add_bits_to_stream(uint8_t* bitstream, int* bitstream_idx, int* bitstream_len, int value, int n_bits) {
+    int rem = 8 * sizeof(uint8_t) - ((*bitstream_len) % 8);
+    int b = n_bits - 1;
+    for (int i = 0; i < rem; i++) {
+        if (b < 0)
+            return;
+        bitstream[*bitstream_idx] *= 2;
+        if ((value & (1 << b)) > 0)
+            bitstream[*bitstream_idx]++;
+        (*bitstream_len)++;
+        b--;
+    }
+    if (rem == 8)
+        (*bitstream_idx)++;
+    if (b >= 0)
+        (*bitstream_idx)++;
+    while (b >= 0) {
+        bitstream[*bitstream_idx] *= 2;
+        if ((value & (1 << b)) > 0)
+            bitstream[*bitstream_idx]++;
+        (*bitstream_len)++;
+        b--;
+    }
+}
+
+// TODO: pack (bitstream, idx, len) into a single struct
+void fill_data(uint8_t* bitstream, char* data, int data_len, const int* total_codewords_lut, int version) {
+    int idx = 0;
+    int len = 0;
+    add_bits_to_stream(bitstream, &idx, &len, 0b0100, 4);
+    add_bits_to_stream(bitstream, &idx, &len, data_len, (version <= 9 ? 8 : 16));
+    for (int i = 0; i < data_len; i++) {
+        add_bits_to_stream(bitstream, &idx, &len, data[i], 8);
+    }
+    int total_bits = total_codewords_lut[version] * 8;
+    int terminator_bits = (total_bits - len >= 4 ? 4 : total_bits - len);
+    add_bits_to_stream(bitstream, &idx, &len, 0, terminator_bits);
+    if (len % 8 > 0)
+        add_bits_to_stream(bitstream, &idx, &len, 0, 8 - (len % 8));
+    int pad_byte = 0b11101100;
+    while (len < total_bits) {
+        add_bits_to_stream(bitstream, &idx, &len, pad_byte, 8);
+        pad_byte ^= (0b11101100 ^ 0b00010001);
+    }
+    printf("Final bitstream:\n");
+    for (int i = 0; i <= idx; i++) {
+        printf("%d\n", bitstream[i]);
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         printf("%s\n", USAGE_MSG);
@@ -152,42 +208,46 @@ int main(int argc, char** argv) {
     }
     char* data = argv[1];
     int data_len = strlen(data);
-    enum corr_level_t corr_level = CORR_M;
-    const int* max_cap = CAPS_CORR_M;
+    enum corr_level_t corr_level = CORR_L;
+    const int* max_cap_lut = CAPS_CORR_L;
+    const int* total_codewords_lut = TOTAL_CODEWORDS_L;
     if (argc >= 3) {
         char* flag = argv[2];
         if (strcmp(flag, "-l") == 0) {
             corr_level = CORR_L;
-            max_cap = CAPS_CORR_L;
+            max_cap_lut = CAPS_CORR_L;
+            total_codewords_lut = TOTAL_CODEWORDS_L;
         }
         if (strcmp(flag, "-m") == 0) {
             corr_level = CORR_M;
-            max_cap = CAPS_CORR_M;
+            max_cap_lut = CAPS_CORR_M;
+            // total_codewords = TOTAL_CODEWORDS_M;
         }
         if (strcmp(flag, "-q") == 0) {
             corr_level = CORR_Q;
             // max_cap = CAPS_CORR_Q;
+            // total_codewords = TOTAL_CODEWORDS_Q;
         }
         if (strcmp(flag, "-h") == 0) {
             corr_level = CORR_H;
             // max_cap = CAPS_CORR_H;
+            // total_codewords = TOTAL_CODEWORDS_H;
         }
     }
 
-    // find the lowest version with enough capacity for the given correction level
-    // https://www.thonky.com/qr-code-tutorial/character-capacities
     int version = 1;
-    while (max_cap[version] < data_len)
+    while (max_cap_lut[version] < data_len)
         version++;
-    int codewords_cap = max_cap[version];
+    printf("version: %d\n", version);
+    int codewords_cap = max_cap_lut[version];
 
     int dim = 4 * version + 17;
     bitset_t code;
     bitset_init(&code, dim, dim);
 
-    // turn data to a bitstring
-    // prepend metadata
-    // pad to capacity
+    uint8_t bitstream[dim * dim];
+    memset(bitstream, 0, dim * dim * sizeof(uint8_t));
+    fill_data(bitstream, data, data_len, total_codewords_lut, version);
 
     // finder patterns
     int finder_coords_x[3] = {0, dim - 7, 0};
