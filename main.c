@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "bitset.h"
+#include "reed_solomon.h"
 
 #define ERR_AND_DIE(...) \
     (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
@@ -52,7 +53,7 @@ static const int CORR_CODEWORDS_PER_BLOCK[4][41] = {
      30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
 };
 
-static const int CORR_BLOCKS[4][41] = {
+static const int TOTAL_BLOCKS[4][41] = {
     {0, 1, 1, 1,  1,  1,  2,  2,  2,  2,  4,  4,  4,  4,  4,  6,  6,  6,  6,  7, 8,
      8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25},
     {0,  1,  1,  1,  2,  2,  4,  4,  4,  5,  5,  5,  8,  9,  9,  10, 10, 11, 13, 14, 16,
@@ -243,12 +244,16 @@ void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level
 }
 
 void add_error_correction(bitstream_t* bitstream, enum corr_level_t corr_level, int version) {
-    int n_blocks = CORR_BLOCKS[(int)corr_level][version];
+    int n_blocks = TOTAL_BLOCKS[(int)corr_level][version];
     int codewords_per_block = CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
     int n_all_codewords = TOTAL_AVAILABLE_MODULES[version] / 8;
     int data_len = TOTAL_CODEWORDS[(int)corr_level][version];
     int n_small_blocks = n_blocks - n_all_codewords % n_blocks;
     int small_block_len = n_all_codewords / n_blocks - codewords_per_block;
+    init_lut();
+
+    int poly[MAX_DEGREE];
+    compute_generator_poly(codewords_per_block, poly);
 }
 
 int main(int argc, char** argv) {
