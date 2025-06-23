@@ -6,18 +6,62 @@
 
 #define ERR_AND_DIE(...) \
     (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
-
 static const char* USAGE_MSG = "Usage: ./qr <data> [error correction level]";
-static const int CAPS_CORR_L[41] = {0, 17,   32,   53,   78,   106,  134,  154,  192,  230,  271,  321,  367,  425,  458,
-                                    520,  586,  644,  718,  792,  858,  929,  1003, 1091, 1171, 1273, 1367, 1465, 1528,
-                                    1628, 1732, 1840, 1952, 2068, 2188, 2303, 2431, 2563, 2699, 2809, 2953};
-static const int CAPS_CORR_M[41] = {0, 14,   26,   42,   62,   84,   106,  122,  152,  180,  213,  251,  287,  331,  362,
-                                    412,  450,  504,  560,  624,  666,  711,  779,  857,  911,  997,  1059, 1125, 1190,
-                                    1264, 1370, 1452, 1538, 1628, 1722, 1809, 1911, 1989, 2099, 2213, 2331};
-static const int TOTAL_CODEWORDS_L[41] = {0, 19,   34,   55,   80,   108,  136,  156,  194,  232,  274,
-                                          324,  370,  428,  461,  523,  589,  647,  721,  795,  861,
-                                          932,  1006, 1094, 1174, 1276, 1370, 1468, 1531, 1631, 1735,
-                                          1843, 1955, 2071, 2191, 2306, 2434, 2566, 2702, 2812, 2956};
+
+// data capacity (in bytes) for given error correction level and version
+static const int CAPACITY[4][41] = {
+    {0,    17,   32,   53,   78,   106,  134,  154,  190,  226,  262,  321,  367,  419,
+     461,  523,  589,  647,  714,  792,  858,  929,  1003, 1091, 1171, 1273, 1367, 1465,
+     1528, 1628, 1732, 1840, 1952, 2068, 2188, 2303, 2431, 2563, 2699, 2809, 2953},
+    {0,    14,   26,   42,   62,   84,   106,  122,  152,  180,  213,  251,  287,  331,
+     362,  412,  450,  504,  560,  624,  666,  711,  779,  857,  911,  997,  1059, 1125,
+     1190, 1264, 1370, 1452, 1538, 1628, 1722, 1809, 1911, 1989, 2099, 2213, 2331},
+    {0,   11,  20,  32,  46,  60,  74,  86,  108, 130, 151,  177,  203,  241,  258,  292,  322,  364,  394,  442, 482,
+     509, 565, 611, 661, 715, 751, 805, 868, 908, 982, 1030, 1112, 1168, 1228, 1283, 1351, 1423, 1499, 1579, 1663},
+    {0,   7,   14,  24,  34,  44,  58,  64,  84,  98,  119, 137, 155, 177, 194, 220,  250,  280,  310,  338, 382,
+     403, 439, 461, 511, 535, 593, 625, 658, 698, 742, 790, 842, 898, 958, 983, 1051, 1093, 1139, 1219, 1273}};
+
+// total number of data codewords for given error correction level and version
+static const int TOTAL_CODEWORDS[4][41] = {
+    {0,    19,   34,   55,   80,   108,  136,  156,  194,  232,  274,  324,  370,  428,
+     461,  523,  589,  647,  721,  795,  861,  932,  1006, 1094, 1174, 1276, 1370, 1468,
+     1531, 1631, 1735, 1843, 1955, 2071, 2191, 2306, 2434, 2566, 2702, 2812, 2956},
+    {0,    16,   28,   44,   64,   86,   108,  124,  154,  182,  216,  254,  290,  334,
+     365,  415,  453,  507,  563,  627,  669,  714,  782,  860,  914,  1000, 1062, 1128,
+     1193, 1267, 1373, 1455, 1541, 1631, 1725, 1812, 1914, 1992, 2102, 2216, 2334},
+    {0,    13,   22,   34,   48,   62,   76,   88,   110,  132,  154,  178,  204,  224,
+     279,  335,  395,  468,  535,  619,  667,  714,  782,  860,  914,  1000, 1062, 1128,
+     1193, 1267, 1373, 1455, 1541, 1631, 1725, 1812, 1914, 1992, 2102, 2216, 2334},
+    {0,   9,   16,  26,  36,  46,  60,  66,  86,  100, 122, 140, 158, 180, 197, 223,  253,  283,  313,  341, 385,
+     406, 442, 464, 514, 538, 596, 628, 661, 701, 745, 793, 845, 901, 961, 986, 1054, 1096, 1142, 1222, 1276}};
+
+// number of modules (bits) available in the entire code (excluding function patterns) for given version
+static const int TOTAL_AVAILABLE_MODULES[41] = {
+    0,     208,   359,   567,   807,   1079,  1383,  1568,  1936,  2336,  2768,  3232,  3728,  4256,
+    4651,  5243,  5867,  6523,  7211,  7931,  8683,  9252,  10068, 10916, 11796, 12708, 13652, 14628,
+    15371, 16411, 17483, 18587, 19723, 20891, 22091, 23008, 24272, 25568, 26896, 28256, 29648};
+
+static const int CORR_CODEWORDS_PER_BLOCK[4][41] = {
+    {0,  7,  10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28,
+     28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
+    {0,  10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26,
+     26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
+    {0,  13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30,
+     28, 30, 30, 30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
+    {0,  17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28,
+     30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
+};
+
+static const int CORR_BLOCKS[4][41] = {
+    {0, 1, 1, 1,  1,  1,  2,  2,  2,  2,  4,  4,  4,  4,  4,  6,  6,  6,  6,  7, 8,
+     8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25},
+    {0,  1,  1,  1,  2,  2,  4,  4,  4,  5,  5,  5,  8,  9,  9,  10, 10, 11, 13, 14, 16,
+     17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49},
+    {0,  1,  1,  2,  2,  4,  4,  6,  6,  8,  8,  8,  10, 12, 16, 12, 17, 16, 18, 21, 20,
+     23, 23, 25, 27, 29, 34, 34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68},
+    {0,  1,  1,  2,  4,  4,  4,  5,  6,  8,  8,  11, 11, 16, 16, 18, 16, 19, 21, 25, 25,
+     25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81},
+};
 
 enum corr_level_t {
     CORR_L,
@@ -31,6 +75,12 @@ typedef struct rgb_color_t {
     uint8_t g;
     uint8_t b;
 } rgb_color_t;
+
+typedef struct bitstream_t {
+    uint8_t* values;
+    int len_bytes;
+    int len_bits;
+} bitstream_t;
 
 void save_as_ppm(bitset_t* code, rgb_color_t* color, int mod_sz, int padding, char* filename) {
     FILE* file = fopen(filename, "w");
@@ -96,7 +146,6 @@ void draw_timing_patterns(bitset_t* code, int sx, int sy) {
             bitset_unset(code, x, y);
         flip ^= 1;
     }
-
     x = sx + 7 - 1;
     y = sy + 7 + 1;
     flip = 1;
@@ -150,55 +199,56 @@ void draw_alignment_patterns(bitset_t* code, int version) {
 void draw_version_pattern(bitset_t* code, int version) {}
 
 // add lower n_bits of value to bitstream
-// fix this
-void add_bits_to_stream(uint8_t* bitstream, int* bitstream_idx, int* bitstream_len, int value, int n_bits) {
-    int rem = 8 * sizeof(uint8_t) - ((*bitstream_len) % 8);
+void add_bits_to_stream(bitstream_t* bitstream, int value, int n_bits) {
+    int tail = bitstream->len_bits % 8;
     int b = n_bits - 1;
-    for (int i = 0; i < rem; i++) {
-        if (b < 0)
-            return;
-        bitstream[*bitstream_idx] *= 2;
-        if ((value & (1 << b)) > 0)
-            bitstream[*bitstream_idx]++;
-        (*bitstream_len)++;
-        b--;
+    if (tail != 0) {
+        for (int i = 0; i < 8 - tail; i++) {
+            if (b < 0)
+                return;
+            bitstream->values[bitstream->len_bytes - 1] *= 2;
+            if ((value & (1 << b)) > 0)
+                bitstream->values[bitstream->len_bytes - 1]++;
+            bitstream->len_bits++;
+            b--;
+        }
     }
-    if (rem == 8)
-        (*bitstream_idx)++;
-    if (b >= 0)
-        (*bitstream_idx)++;
     while (b >= 0) {
-        bitstream[*bitstream_idx] *= 2;
+        if (bitstream->len_bits % 8 == 0)
+            bitstream->len_bytes++;
+        bitstream->values[bitstream->len_bytes - 1] *= 2;
         if ((value & (1 << b)) > 0)
-            bitstream[*bitstream_idx]++;
-        (*bitstream_len)++;
+            bitstream->values[bitstream->len_bytes - 1]++;
+        bitstream->len_bits++;
         b--;
     }
 }
 
-// TODO: pack (bitstream, idx, len) into a single struct
-void fill_data(uint8_t* bitstream, char* data, int data_len, const int* total_codewords_lut, int version) {
-    int idx = 0;
-    int len = 0;
-    add_bits_to_stream(bitstream, &idx, &len, 0b0100, 4);
-    add_bits_to_stream(bitstream, &idx, &len, data_len, (version <= 9 ? 8 : 16));
+void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level_t corr_level, int version) {
+    add_bits_to_stream(bitstream, 0b0100, 4);
+    add_bits_to_stream(bitstream, data_len, (version <= 9 ? 8 : 16));
     for (int i = 0; i < data_len; i++) {
-        add_bits_to_stream(bitstream, &idx, &len, data[i], 8);
+        add_bits_to_stream(bitstream, data[i], 8);
     }
-    int total_bits = total_codewords_lut[version] * 8;
-    int terminator_bits = (total_bits - len >= 4 ? 4 : total_bits - len);
-    add_bits_to_stream(bitstream, &idx, &len, 0, terminator_bits);
-    if (len % 8 > 0)
-        add_bits_to_stream(bitstream, &idx, &len, 0, 8 - (len % 8));
+    int total_bits = TOTAL_CODEWORDS[(int)corr_level][version] * 8;
+    int terminator_bits = (total_bits - bitstream->len_bits >= 4 ? 4 : total_bits - bitstream->len_bits);
+    add_bits_to_stream(bitstream, 0, terminator_bits);
+    if (bitstream->len_bits % 8 > 0)
+        add_bits_to_stream(bitstream, 0, 8 - (bitstream->len_bits % 8));
     int pad_byte = 0b11101100;
-    while (len < total_bits) {
-        add_bits_to_stream(bitstream, &idx, &len, pad_byte, 8);
+    while (bitstream->len_bits < total_bits) {
+        add_bits_to_stream(bitstream, pad_byte, 8);
         pad_byte ^= (0b11101100 ^ 0b00010001);
     }
-    printf("Final bitstream:\n");
-    for (int i = 0; i <= idx; i++) {
-        printf("%d\n", bitstream[i]);
-    }
+}
+
+void add_error_correction(bitstream_t* bitstream, enum corr_level_t corr_level, int version) {
+    int n_blocks = CORR_BLOCKS[(int)corr_level][version];
+    int codewords_per_block = CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
+    int n_all_codewords = TOTAL_AVAILABLE_MODULES[version] / 8;
+    int data_len = TOTAL_CODEWORDS[(int)corr_level][version];
+    int n_small_blocks = n_blocks - n_all_codewords % n_blocks;
+    int small_block_len = n_all_codewords / n_blocks - codewords_per_block;
 }
 
 int main(int argc, char** argv) {
@@ -209,45 +259,37 @@ int main(int argc, char** argv) {
     char* data = argv[1];
     int data_len = strlen(data);
     enum corr_level_t corr_level = CORR_L;
-    const int* max_cap_lut = CAPS_CORR_L;
-    const int* total_codewords_lut = TOTAL_CODEWORDS_L;
     if (argc >= 3) {
         char* flag = argv[2];
         if (strcmp(flag, "-l") == 0) {
             corr_level = CORR_L;
-            max_cap_lut = CAPS_CORR_L;
-            total_codewords_lut = TOTAL_CODEWORDS_L;
         }
         if (strcmp(flag, "-m") == 0) {
             corr_level = CORR_M;
-            max_cap_lut = CAPS_CORR_M;
-            // total_codewords = TOTAL_CODEWORDS_M;
         }
         if (strcmp(flag, "-q") == 0) {
             corr_level = CORR_Q;
-            // max_cap = CAPS_CORR_Q;
-            // total_codewords = TOTAL_CODEWORDS_Q;
         }
         if (strcmp(flag, "-h") == 0) {
             corr_level = CORR_H;
-            // max_cap = CAPS_CORR_H;
-            // total_codewords = TOTAL_CODEWORDS_H;
         }
     }
 
     int version = 1;
-    while (max_cap_lut[version] < data_len)
+    while (CAPACITY[(int)corr_level][version] < data_len)
         version++;
     printf("version: %d\n", version);
-    int codewords_cap = max_cap_lut[version];
 
     int dim = 4 * version + 17;
+    bitstream_t bitstream = {.len_bytes = 0, .len_bits = 0};
+    bitstream.values = calloc(TOTAL_AVAILABLE_MODULES[version] / 8 + 1, sizeof(uint8_t));
+    fill_data(&bitstream, data, data_len, corr_level, version);
+    add_error_correction(&bitstream, corr_level, version);
+
     bitset_t code;
     bitset_init(&code, dim, dim);
 
-    uint8_t bitstream[dim * dim];
-    memset(bitstream, 0, dim * dim * sizeof(uint8_t));
-    fill_data(bitstream, data, data_len, total_codewords_lut, version);
+    free(bitstream.values);
 
     // finder patterns
     int finder_coords_x[3] = {0, dim - 7, 0};
@@ -262,7 +304,7 @@ int main(int argc, char** argv) {
     if (version >= 7)
         draw_version_pattern(&code, version);
 
-    rgb_color_t color = {.r = 128, .g = 0, .b = 128};
+    rgb_color_t color = {.r = 192, .g = 0, .b = 0};
     save_as_ppm(&code, &color, 20, 5, "code.ppm");
     bitset_free(&code);
 
