@@ -1,3 +1,4 @@
+// based on ISO-18004
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +65,12 @@ static const int TOTAL_BLOCKS[4][41] = {
      25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81},
 };
 
+static const int VERSION_INFO[41] = {0,       0,       0,       0,       0,       0,       0,       0x07C94, 0x085BC,
+                                     0x09A99, 0x0A4D3, 0x0BBF6, 0x0C762, 0x0D847, 0x0E60D, 0x0F928, 0x10B78, 0x1145D,
+                                     0x12A17, 0x13532, 0x149A6, 0x15683, 0x168C9, 0x177EC, 0x18EC4, 0x191E1, 0x1AFAB,
+                                     0x1B08E, 0x1CC1A, 0x1D33F, 0x1ED75, 0x1F250, 0x209D5, 0x216F0, 0x228BA, 0x2379F,
+                                     0x24B0B, 0x2542E, 0x26A64, 0x27541, 0x28C69};
+
 enum corr_level_t {
     CORR_L,
     CORR_M,
@@ -116,6 +123,86 @@ void save_as_ppm(bitset_t* code, rgb_color_t* color, int mod_sz, int padding, ch
     free(buf);
     if (fclose(file))
         ERR_AND_DIE("fclose");
+}
+
+// add lower n_bits of value to bitstream
+void add_bits_to_stream(bitstream_t* bitstream, int value, int n_bits) {
+    int tail = bitstream->len_bits % 8;
+    int b = n_bits - 1;
+    if (tail != 0) {
+        for (int i = 0; i < 8 - tail; i++) {
+            if (b < 0)
+                return;
+            bitstream->values[bitstream->len_bytes - 1] *= 2;
+            if ((value & (1 << b)) > 0)
+                bitstream->values[bitstream->len_bytes - 1]++;
+            bitstream->len_bits++;
+            b--;
+        }
+    }
+    while (b >= 0) {
+        if (bitstream->len_bits % 8 == 0)
+            bitstream->len_bytes++;
+        bitstream->values[bitstream->len_bytes - 1] *= 2;
+        if ((value & (1 << b)) > 0)
+            bitstream->values[bitstream->len_bytes - 1]++;
+        bitstream->len_bits++;
+        b--;
+    }
+}
+
+void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level_t corr_level, int version) {
+    add_bits_to_stream(bitstream, 0b0100, 4);
+    add_bits_to_stream(bitstream, data_len, (version <= 9 ? 8 : 16));
+    for (int i = 0; i < data_len; i++) {
+        add_bits_to_stream(bitstream, data[i], 8);
+    }
+    int total_bits = TOTAL_DATA_CODEWORDS[(int)corr_level][version] * 8;
+    int terminator_bits = (total_bits - bitstream->len_bits >= 4 ? 4 : total_bits - bitstream->len_bits);
+    add_bits_to_stream(bitstream, 0, terminator_bits);
+    if (bitstream->len_bits % 8 > 0)
+        add_bits_to_stream(bitstream, 0, 8 - (bitstream->len_bits % 8));
+    int pad_byte = 0b11101100;
+    while (bitstream->len_bits < total_bits) {
+        add_bits_to_stream(bitstream, pad_byte, 8);
+        pad_byte ^= (0b11101100 ^ 0b00010001);
+    }
+}
+
+void add_error_correction_and_interleave(bitstream_t* bitstream, enum corr_level_t corr_level, int version,
+                                         uint8_t* res) {
+    int n_blocks = TOTAL_BLOCKS[(int)corr_level][version];
+    int n_corr_codewords_per_block = CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
+    int n_all_codewords = TOTAL_AVAILABLE_MODULES[version] / 8;
+    int corr_offset = TOTAL_DATA_CODEWORDS[(int)corr_level][version];
+    int n_small_blocks = n_blocks - n_all_codewords % n_blocks;
+    int small_block_len = n_all_codewords / n_blocks - n_corr_codewords_per_block;
+    init_lut();
+
+    int gen_poly[MAX_DEGREE];
+    uint8_t* corr_codewords = malloc(n_corr_codewords_per_block * sizeof(uint8_t));
+    compute_generator_poly(n_corr_codewords_per_block, gen_poly);
+
+    int block_start = 0;
+    for (int i = 0; i < n_blocks; i++) {
+        int block_len = (i < n_small_blocks ? small_block_len : small_block_len + 1);
+        compute_corr_codewords(gen_poly, bitstream->values, block_start, block_len, n_corr_codewords_per_block,
+                               corr_codewords);
+        // printf("=======================================\n");
+        // printf("codewords of block %d:\n", i);
+        // for (int j = 0; j < block_len; j++)
+        //     printf("%d\n", bitstream->values[block_start + j]);
+        // printf("correction codewords for block %d:\n", i);
+        // for (int j = 0; j < n_corr_codewords_per_block; j++)
+        //     printf("%d\n", corr_codewords[j]);
+        // interleave
+        for (int j = 0; j < block_len; j++)
+            res[i + n_blocks * j] = bitstream->values[block_start + j];
+        for (int j = 0; j < n_corr_codewords_per_block; j++)
+            res[corr_offset + i + n_blocks * j] = corr_codewords[j];
+        block_start += block_len;
+    }
+    free(corr_codewords);
 }
 
 void draw_finder_pattern(bitset_t* code, int sx, int sy) {
@@ -197,87 +284,35 @@ void draw_alignment_patterns(bitset_t* code, int version) {
     }
 }
 
-void draw_version_pattern(bitset_t* code, int version) {}
-
-// add lower n_bits of value to bitstream
-void add_bits_to_stream(bitstream_t* bitstream, int value, int n_bits) {
-    int tail = bitstream->len_bits % 8;
-    int b = n_bits - 1;
-    if (tail != 0) {
-        for (int i = 0; i < 8 - tail; i++) {
-            if (b < 0)
-                return;
-            bitstream->values[bitstream->len_bytes - 1] *= 2;
-            if ((value & (1 << b)) > 0)
-                bitstream->values[bitstream->len_bytes - 1]++;
-            bitstream->len_bits++;
-            b--;
+void draw_version_pattern(bitset_t* code, int version, int dim) {
+    int version_info = VERSION_INFO[version];
+    for (int i = 0; i < 6; i++) {
+        for (int j = 0; j < 3; j++) {
+            int b = 3 * i + j;
+            if ((version_info & (1 << b)) == 0) {
+                bitset_unset(code, dim - 11 + j, i);
+                bitset_unset(code, i, dim - 11 + j);
+            } else {
+                bitset_set(code, dim - 11 + j, i);
+                bitset_set(code, i, dim - 11 + j);
+            }
         }
     }
-    while (b >= 0) {
-        if (bitstream->len_bits % 8 == 0)
-            bitstream->len_bytes++;
-        bitstream->values[bitstream->len_bytes - 1] *= 2;
-        if ((value & (1 << b)) > 0)
-            bitstream->values[bitstream->len_bytes - 1]++;
-        bitstream->len_bits++;
-        b--;
-    }
 }
 
-void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level_t corr_level, int version) {
-    add_bits_to_stream(bitstream, 0b0100, 4);
-    add_bits_to_stream(bitstream, data_len, (version <= 9 ? 8 : 16));
-    for (int i = 0; i < data_len; i++) {
-        add_bits_to_stream(bitstream, data[i], 8);
+void draw_functional_patterns(bitset_t* code, int version, int dim) {
+    // finder patterns
+    int finder_coords_x[3] = {0, dim - 7, 0};
+    int finder_coords_y[3] = {0, 0, dim - 7};
+    for (int i = 0; i < 3; i++) {
+        draw_finder_pattern(code, finder_coords_x[i], finder_coords_y[i]);
     }
-    int total_bits = TOTAL_DATA_CODEWORDS[(int)corr_level][version] * 8;
-    int terminator_bits = (total_bits - bitstream->len_bits >= 4 ? 4 : total_bits - bitstream->len_bits);
-    add_bits_to_stream(bitstream, 0, terminator_bits);
-    if (bitstream->len_bits % 8 > 0)
-        add_bits_to_stream(bitstream, 0, 8 - (bitstream->len_bits % 8));
-    int pad_byte = 0b11101100;
-    while (bitstream->len_bits < total_bits) {
-        add_bits_to_stream(bitstream, pad_byte, 8);
-        pad_byte ^= (0b11101100 ^ 0b00010001);
-    }
-}
-
-void add_error_correction_and_interleave(bitstream_t* bitstream, enum corr_level_t corr_level, int version,
-                                         uint8_t* res) {
-    int n_blocks = TOTAL_BLOCKS[(int)corr_level][version];
-    int n_corr_codewords_per_block = CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
-    int n_all_codewords = TOTAL_AVAILABLE_MODULES[version] / 8;
-    int data_len = TOTAL_DATA_CODEWORDS[(int)corr_level][version];
-    int n_small_blocks = n_blocks - n_all_codewords % n_blocks;
-    int small_block_len = n_all_codewords / n_blocks - n_corr_codewords_per_block;
-    init_lut();
-
-    int gen_poly[MAX_DEGREE];
-    uint8_t* corr_codewords = malloc(n_corr_codewords_per_block * sizeof(uint8_t));
-    compute_generator_poly(n_corr_codewords_per_block, gen_poly);
-
-    int block_start = 0,
-        corr_offset = n_small_blocks * small_block_len + (n_blocks - n_small_blocks) * (small_block_len + 1);
-    for (int i = 0; i < n_blocks; i++) {
-        int block_len = (i < n_small_blocks ? small_block_len : small_block_len + 1);
-        compute_corr_codewords(gen_poly, bitstream->values, block_start, block_len, n_corr_codewords_per_block,
-                               corr_codewords);
-        printf("=======================================\n");
-        printf("codewords of block %d:\n", i);
-        for (int j = 0; j < block_len; j++)
-            printf("%d\n", bitstream->values[block_start + j]);
-        printf("correction codewords for block %d:\n", i);
-        for (int j = 0; j < n_corr_codewords_per_block; j++)
-            printf("%d\n", corr_codewords[j]);
-        // interleave
-        for (int j = 0; j < block_len; j++)
-            res[i + n_blocks * j] = bitstream->values[block_start + j];
-        for (int j = 0; j < n_corr_codewords_per_block; j++)
-            res[corr_offset + i + n_blocks * j] = corr_codewords[j];
-        block_start += block_len;
-    }
-    free(corr_codewords);
+    // timing patterns
+    draw_timing_patterns(code, finder_coords_x[0], finder_coords_y[0]);
+    // alignment patterns
+    draw_alignment_patterns(code, version);
+    if (version >= 7)
+        draw_version_pattern(code, version, dim);
 }
 
 int main(int argc, char** argv) {
@@ -307,8 +342,12 @@ int main(int argc, char** argv) {
     }
 
     int version = 1;
-    while (CAPACITY[(int)corr_level][version] < data_len)
+    while (version <= 40 && CAPACITY[(int)corr_level][version] < data_len)
         version++;
+    if (version > 40) {
+        printf("input too long to be stored in a QR code with the specified error correction capacity\n");
+        return EXIT_FAILURE;
+    }
     printf("version: %d\n", version);
 
     int dim = 4 * version + 17;
@@ -320,27 +359,15 @@ int main(int argc, char** argv) {
                           TOTAL_BLOCKS[(int)corr_level][version] * CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
     uint8_t result[total_codewords];
     add_error_correction_and_interleave(&bitstream, corr_level, version, result);
-    printf("after interleaving:\n");
-    for (int i = 0; i < total_codewords; i++)
-        printf("%d\n", result[i]);
+    // printf("after interleaving:\n");
+    // for (int i = 0; i < total_codewords; i++)
+    //     printf("%d\n", result[i]);
 
     bitset_t code;
     bitset_init(&code, dim, dim);
+    draw_functional_patterns(&code, version, dim);
 
     free(bitstream.values);
-
-    // finder patterns
-    int finder_coords_x[3] = {0, dim - 7, 0};
-    int finder_coords_y[3] = {0, 0, dim - 7};
-    for (int i = 0; i < 3; i++) {
-        draw_finder_pattern(&code, finder_coords_x[i], finder_coords_y[i]);
-    }
-    // timing patterns
-    draw_timing_patterns(&code, finder_coords_x[0], finder_coords_y[0]);
-    // alignment patterns
-    draw_alignment_patterns(&code, version);
-    if (version >= 7)
-        draw_version_pattern(&code, version);
 
     rgb_color_t color = {.r = 192, .g = 0, .b = 0};
     save_as_ppm(&code, &color, 20, 5, "code.ppm");
