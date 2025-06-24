@@ -39,13 +39,45 @@ void compute_generator_poly(int deg, int poly[MAX_DEGREE]) {
             poly[j] ^= temp[j];
         }
     }
+    for (int i = 0; i <= deg / 2; i++) {
+        int tmp = poly[i];
+        poly[i] = poly[deg - i];
+        poly[deg - i] = tmp;
+    }
 }
 
-// void test() {
-//     int deg = 30;
-//     int poly[MAX_DEGREE];
-//     compute_generator_poly(deg, poly);
-//     for (int i = 0; i <= deg; i++) {
-//         printf("%d\n", log_2[poly[i]]);
-//     }
-// }
+void compute_corr_codewords(int* gen_poly, uint8_t* msg_bytes, int block_start, int block_len, int n_corr_codewords,
+                            uint8_t* corr_codewords) {
+    // generator poly is implicitly multiplied by x^(block_len - 1), message poly by x^n_corr_codewords
+    uint8_t res[MAX_DEGREE];
+    memset(res, 0, MAX_DEGREE * sizeof(uint8_t));
+    memcpy(res, msg_bytes + block_start, block_len);
+    for (int i = 0; i < block_len; i++) {
+        int coeff_exp = log_2[res[i]];
+        for (int j = i; j < MAX_DEGREE; j++) {
+            if (gen_poly[j - i] != 0)
+                res[j] ^= pow_2[(log_2[gen_poly[j - i]] + coeff_exp) % MAX_N];
+        }
+    }
+    for (int i = block_len; i < block_len + n_corr_codewords; i++)
+        corr_codewords[i - block_len] = res[i];
+}
+
+void test() {
+    // int deg = 5;
+    // int poly[MAX_DEGREE];
+    // compute_generator_poly(deg, poly);
+    // for (int i = 0; i <= deg; i++) {
+    //     printf("%d\n", log_2[poly[i]]);
+    // }
+
+    int deg = 10;
+    int poly[MAX_DEGREE];
+    compute_generator_poly(deg, poly);
+    uint8_t msg[16] = {32, 91, 11, 120, 209, 114, 220, 77, 67, 64, 236, 17, 236, 17, 236, 17};
+    uint8_t corr_codewords[10];
+    compute_corr_codewords(poly, msg, 0, 16, 10, corr_codewords);
+    printf("***\n");
+    for (int i = 0; i < 10; i++)
+        printf("%d\n", corr_codewords[i]);
+}

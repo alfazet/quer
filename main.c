@@ -23,7 +23,7 @@ static const int CAPACITY[4][41] = {
      403, 439, 461, 511, 535, 593, 625, 658, 698, 742, 790, 842, 898, 958, 983, 1051, 1093, 1139, 1219, 1273}};
 
 // total number of data codewords for given error correction level and version
-static const int TOTAL_CODEWORDS[4][41] = {
+static const int TOTAL_DATA_CODEWORDS[4][41] = {
     {0,    19,   34,   55,   80,   108,  136,  156,  194,  232,  274,  324,  370,  428,
      461,  523,  589,  647,  721,  795,  861,  932,  1006, 1094, 1174, 1276, 1370, 1468,
      1531, 1631, 1735, 1843, 1955, 2071, 2191, 2306, 2434, 2566, 2702, 2812, 2956},
@@ -231,7 +231,7 @@ void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level
     for (int i = 0; i < data_len; i++) {
         add_bits_to_stream(bitstream, data[i], 8);
     }
-    int total_bits = TOTAL_CODEWORDS[(int)corr_level][version] * 8;
+    int total_bits = TOTAL_DATA_CODEWORDS[(int)corr_level][version] * 8;
     int terminator_bits = (total_bits - bitstream->len_bits >= 4 ? 4 : total_bits - bitstream->len_bits);
     add_bits_to_stream(bitstream, 0, terminator_bits);
     if (bitstream->len_bits % 8 > 0)
@@ -243,20 +243,46 @@ void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level
     }
 }
 
-void add_error_correction(bitstream_t* bitstream, enum corr_level_t corr_level, int version) {
+void add_error_correction_and_interleave(bitstream_t* bitstream, enum corr_level_t corr_level, int version,
+                                         uint8_t* res) {
     int n_blocks = TOTAL_BLOCKS[(int)corr_level][version];
-    int codewords_per_block = CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
+    int n_corr_codewords_per_block = CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
     int n_all_codewords = TOTAL_AVAILABLE_MODULES[version] / 8;
-    int data_len = TOTAL_CODEWORDS[(int)corr_level][version];
+    int data_len = TOTAL_DATA_CODEWORDS[(int)corr_level][version];
     int n_small_blocks = n_blocks - n_all_codewords % n_blocks;
-    int small_block_len = n_all_codewords / n_blocks - codewords_per_block;
+    int small_block_len = n_all_codewords / n_blocks - n_corr_codewords_per_block;
     init_lut();
 
-    int poly[MAX_DEGREE];
-    compute_generator_poly(codewords_per_block, poly);
+    int gen_poly[MAX_DEGREE];
+    uint8_t* corr_codewords = malloc(n_corr_codewords_per_block * sizeof(uint8_t));
+    compute_generator_poly(n_corr_codewords_per_block, gen_poly);
+
+    int block_start = 0,
+        corr_offset = n_small_blocks * small_block_len + (n_blocks - n_small_blocks) * (small_block_len + 1);
+    for (int i = 0; i < n_blocks; i++) {
+        int block_len = (i < n_small_blocks ? small_block_len : small_block_len + 1);
+        compute_corr_codewords(gen_poly, bitstream->values, block_start, block_len, n_corr_codewords_per_block,
+                               corr_codewords);
+        printf("=======================================\n");
+        printf("codewords of block %d:\n", i);
+        for (int j = 0; j < block_len; j++)
+            printf("%d\n", bitstream->values[block_start + j]);
+        printf("correction codewords for block %d:\n", i);
+        for (int j = 0; j < n_corr_codewords_per_block; j++)
+            printf("%d\n", corr_codewords[j]);
+        // interleave
+        for (int j = 0; j < block_len; j++)
+            res[i + n_blocks * j] = bitstream->values[block_start + j];
+        for (int j = 0; j < n_corr_codewords_per_block; j++)
+            res[corr_offset + i + n_blocks * j] = corr_codewords[j];
+        block_start += block_len;
+    }
+    free(corr_codewords);
 }
 
 int main(int argc, char** argv) {
+    // init_lut();
+    // test();
     if (argc < 2) {
         printf("%s\n", USAGE_MSG);
         return EXIT_FAILURE;
@@ -289,7 +315,14 @@ int main(int argc, char** argv) {
     bitstream_t bitstream = {.len_bytes = 0, .len_bits = 0};
     bitstream.values = calloc(TOTAL_AVAILABLE_MODULES[version] / 8 + 1, sizeof(uint8_t));
     fill_data(&bitstream, data, data_len, corr_level, version);
-    add_error_correction(&bitstream, corr_level, version);
+
+    int total_codewords = TOTAL_DATA_CODEWORDS[(int)corr_level][version] +
+                          TOTAL_BLOCKS[(int)corr_level][version] * CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
+    uint8_t result[total_codewords];
+    add_error_correction_and_interleave(&bitstream, corr_level, version, result);
+    printf("after interleaving:\n");
+    for (int i = 0; i < total_codewords; i++)
+        printf("%d\n", result[i]);
 
     bitset_t code;
     bitset_init(&code, dim, dim);
