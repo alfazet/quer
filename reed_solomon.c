@@ -49,19 +49,24 @@ void compute_generator_poly(int deg, int poly[MAX_DEGREE]) {
 
 void compute_corr_codewords(int* gen_poly, uint8_t* msg_bytes, int block_start, int block_len, int n_corr_codewords,
                             uint8_t* corr_codewords) {
-    // generator poly is implicitly multiplied by x^(block_len - 1), message poly by x^n_corr_codewords
-    uint8_t* res = calloc(block_len, sizeof(uint8_t));
-    memcpy(res, msg_bytes + block_start, block_len);
+    // the generator poly is implicitly multiplied by x^(block_len - 1), and the message poly by x^n_corr_codewords
+    // every iteration the degree of the generator poly decreases by 1
+    uint8_t* res = malloc(block_len * sizeof(uint8_t));
+    memcpy(res, msg_bytes + block_start, block_len * sizeof(uint8_t));
     for (int i = 0; i < block_len; i++) {
-        int coeff_exp = log_2[res[i]];
-        for (int j = i; j < MAX_DEGREE; j++) {
-            if (gen_poly[j - i] != 0)
-                res[j] ^= pow_2[(log_2[gen_poly[j - i]] + coeff_exp) % MAX_N];
+        int coeff_exp = log_2[res[0]];
+        for (int j = 0; j < n_corr_codewords + 1; j++) {
+            res[j] ^= pow_2[(log_2[gen_poly[j]] + coeff_exp) % MAX_N];
         }
+        for (int j = 0; j < block_len - 1; j++)
+            res[j] = res[j + 1];
+        if (i >= block_len - n_corr_codewords - 1)
+            res[n_corr_codewords] = 0;
     }
-    for (int i = block_len; i < block_len + n_corr_codewords; i++) {
-        corr_codewords[i - block_len] = res[i];
-    }
+    memcpy(corr_codewords, res, n_corr_codewords * sizeof(uint8_t));
+    // for (int i = 0; i < n_corr_codewords; i++) {
+    //     corr_codewords[i] = res[i];
+    // }
     free(res);
 }
 

@@ -188,13 +188,6 @@ void add_error_correction_and_interleave(bitstream_t* bitstream, enum corr_level
         int block_len = (i < n_small_blocks ? small_block_len : small_block_len + 1);
         compute_corr_codewords(gen_poly, bitstream->values, block_start, block_len, n_corr_codewords_per_block,
                                corr_codewords);
-        // printf("=======================================\n");
-        // printf("codewords of block %d:\n", i);
-        // for (int j = 0; j < block_len; j++)
-        //     printf("%d\n", bitstream->values[block_start + j]);
-        // printf("correction codewords for block %d:\n", i);
-        // for (int j = 0; j < n_corr_codewords_per_block; j++)
-        //     printf("%d\n", corr_codewords[j]);
         // interleave
         for (int j = 0; j < block_len; j++)
             res[i + n_blocks * j] = bitstream->values[block_start + j];
@@ -318,6 +311,7 @@ void draw_functional_patterns(bitset_t* code, int version, int dim) {
 int main(int argc, char** argv) {
     // init_lut();
     // test();
+    // exit(1);
     if (argc < 2) {
         printf("%s\n", USAGE_MSG);
         return EXIT_FAILURE;
@@ -348,7 +342,6 @@ int main(int argc, char** argv) {
         printf("input too long to be stored in a QR code with the specified error correction capacity\n");
         return EXIT_FAILURE;
     }
-    printf("version: %d\n", version);
 
     int dim = 4 * version + 17;
     bitstream_t bitstream = {.len_bytes = 0, .len_bits = 0};
@@ -359,9 +352,8 @@ int main(int argc, char** argv) {
                           TOTAL_BLOCKS[(int)corr_level][version] * CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
     uint8_t result[total_codewords];
     add_error_correction_and_interleave(&bitstream, corr_level, version, result);
-    // printf("after interleaving:\n");
-    // for (int i = 0; i < total_codewords; i++)
-    //     printf("%d\n", result[i]);
+    for (int i = 0; i < total_codewords; i++)
+        printf("%d\n", result[i]);
 
     bitset_t code;
     bitset_init(&code, dim, dim);
