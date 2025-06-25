@@ -198,33 +198,46 @@ void add_error_correction_and_interleave(bitstream_t* bitstream, enum corr_level
     free(corr_codewords);
 }
 
-void draw_finder_pattern(bitset_t* code, int sx, int sy) {
-    for (int y = 0; y < 7; y++) {
-        for (int x = 0; x < 7; x++) {
-            bitset_set(code, sx + x, sy + y);
-        }
-    }
-    for (int y = 0; y < 5; y++) {
-        for (int x = 0; x < 5; x++) {
-            bitset_unset(code, sx + x + 1, sy + y + 1);
-        }
-    }
-    for (int y = 0; y < 3; y++) {
-        for (int x = 0; x < 3; x++) {
-            bitset_set(code, sx + x + 2, sy + y + 2);
+void draw_separator(bitset_t* code, int sx, int sy, bitset_t* blocked) {
+    for (int y = 0; y < 8; y++) {
+        for (int x = 0; x < 8; x++) {
+            bitset_unset(code, sy + y, sx + x);
+            bitset_set(blocked, sy + y, sx + x);
         }
     }
 }
 
-void draw_timing_patterns(bitset_t* code, int sx, int sy) {
+void draw_finder_pattern(bitset_t* code, int sx, int sy, bitset_t* blocked) {
+    for (int y = 0; y < 7; y++) {
+        for (int x = 0; x < 7; x++) {
+            bitset_set(code, sy + y, sx + x);
+            bitset_set(blocked, sy + y, sx + x);
+        }
+    }
+    for (int y = 0; y < 5; y++) {
+        for (int x = 0; x < 5; x++) {
+            bitset_unset(code, sy + y + 1, sx + x + 1);
+            bitset_set(blocked, sy + y + 1, sx + x + 1);
+        }
+    }
+    for (int y = 0; y < 3; y++) {
+        for (int x = 0; x < 3; x++) {
+            bitset_set(code, sy + y + 2, sx + x + 2);
+            bitset_set(blocked, sy + y + 2, sx + x + 2);
+        }
+    }
+}
+
+void draw_timing_patterns(bitset_t* code, int sx, int sy, bitset_t* blocked) {
     int x = sx + 7 + 1;
     int y = sy + 7 - 1;
     int flip = 1;
     for (; x < code->width - 7 - 1; x++) {
         if (flip == 1)
-            bitset_set(code, x, y);
+            bitset_set(code, y, x);
         else
-            bitset_unset(code, x, y);
+            bitset_unset(code, y, x);
+        bitset_set(blocked, y, x);
         flip ^= 1;
     }
     x = sx + 7 - 1;
@@ -232,9 +245,10 @@ void draw_timing_patterns(bitset_t* code, int sx, int sy) {
     flip = 1;
     for (; y < code->height - 7 - 1; y++) {
         if (flip == 1)
-            bitset_set(code, x, y);
+            bitset_set(code, y, x);
         else
-            bitset_unset(code, x, y);
+            bitset_unset(code, y, x);
+        bitset_set(blocked, y, x);
         flip ^= 1;
     }
 }
@@ -253,7 +267,7 @@ int get_alignment_pattern_positions(int version, int positions[7]) {
     return count;
 }
 
-void draw_alignment_patterns(bitset_t* code, int version) {
+void draw_alignment_patterns(bitset_t* code, int version, bitset_t* blocked) {
     int pos[7];
     int count = get_alignment_pattern_positions(version, pos);
     for (int i = 0; i < count; i++) {
@@ -264,20 +278,23 @@ void draw_alignment_patterns(bitset_t* code, int version) {
 
             for (int y = pos[i] - 2; y <= pos[i] + 2; y++) {
                 for (int x = pos[j] - 2; x <= pos[j] + 2; x++) {
-                    bitset_set(code, x, y);
+                    bitset_set(code, y, x);
+                    bitset_set(blocked, y, x);
                 }
             }
             for (int y = pos[i] - 1; y <= pos[i] + 1; y++) {
                 for (int x = pos[j] - 1; x <= pos[j] + 1; x++) {
-                    bitset_unset(code, x, y);
+                    bitset_unset(code, y, x);
+                    bitset_set(blocked, y, x);
                 }
             }
-            bitset_set(code, pos[j], pos[i]);
+            bitset_set(code, pos[i], pos[j]);
+            bitset_set(blocked, pos[i], pos[j]);
         }
     }
 }
 
-void draw_version_pattern(bitset_t* code, int version, int dim) {
+void draw_version_pattern(bitset_t* code, int version, int dim, bitset_t* blocked) {
     int version_info = VERSION_INFO[version];
     for (int i = 0; i < 6; i++) {
         for (int j = 0; j < 3; j++) {
@@ -289,29 +306,44 @@ void draw_version_pattern(bitset_t* code, int version, int dim) {
                 bitset_set(code, dim - 11 + j, i);
                 bitset_set(code, i, dim - 11 + j);
             }
+            bitset_set(blocked, dim - 11 + j, i);
+            bitset_set(blocked, i, dim - 11 + j);
         }
     }
 }
 
-void draw_functional_patterns(bitset_t* code, int version, int dim) {
-    // finder patterns
+void block_format_info(int dim, bitset_t* blocked) {
+    for (int x = 0; x < 9; x++)
+        bitset_set(blocked, 8, x);
+    for (int y = 0; y < 9; y++)
+        bitset_set(blocked, y, 8);
+    for (int x = 0; x < 8; x++)
+        bitset_set(blocked, 8, dim - 1 - x);
+    for (int y = 0; y < 7; y++)
+        bitset_set(blocked, dim - 1 - y, 8);
+}
+
+void draw_functional_patterns(bitset_t* code, int version, int dim, bitset_t* blocked) {
+    int separator_coords_x[3] = {0, dim - 8, 0};
+    int separator_coords_y[3] = {0, 0, dim - 8};
+    for (int i = 0; i < 3; i++)
+        draw_separator(code, separator_coords_x[i], separator_coords_y[i], blocked);
     int finder_coords_x[3] = {0, dim - 7, 0};
     int finder_coords_y[3] = {0, 0, dim - 7};
-    for (int i = 0; i < 3; i++) {
-        draw_finder_pattern(code, finder_coords_x[i], finder_coords_y[i]);
-    }
-    // timing patterns
-    draw_timing_patterns(code, finder_coords_x[0], finder_coords_y[0]);
-    // alignment patterns
-    draw_alignment_patterns(code, version);
+    for (int i = 0; i < 3; i++)
+        draw_finder_pattern(code, finder_coords_x[i], finder_coords_y[i], blocked);
+    draw_timing_patterns(code, finder_coords_x[0], finder_coords_y[0], blocked);
+    draw_alignment_patterns(code, version, blocked);
     if (version >= 7)
-        draw_version_pattern(code, version, dim);
+        draw_version_pattern(code, version, dim, blocked);
+    // format info (just block, will be filled in later)
+    block_format_info(dim, blocked);
+    // that single black module in the lower left corner
+    bitset_set(code, dim - 8, 8);
+    bitset_set(blocked, dim - 8, 8);
 }
 
 int main(int argc, char** argv) {
-    // init_lut();
-    // test();
-    // exit(1);
     if (argc < 2) {
         printf("%s\n", USAGE_MSG);
         return EXIT_FAILURE;
@@ -352,18 +384,20 @@ int main(int argc, char** argv) {
                           TOTAL_BLOCKS[(int)corr_level][version] * CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
     uint8_t result[total_codewords];
     add_error_correction_and_interleave(&bitstream, corr_level, version, result);
-    for (int i = 0; i < total_codewords; i++)
-        printf("%d\n", result[i]);
+    // for (int i = 0; i < total_codewords; i++)
+    //     printf("%d\n", result[i]);
 
     bitset_t code;
     bitset_init(&code, dim, dim);
-    draw_functional_patterns(&code, version, dim);
+    bitset_t blocked;
+    bitset_init(&blocked, dim, dim);
+    draw_functional_patterns(&code, version, dim, &blocked);
 
     free(bitstream.values);
-
     rgb_color_t color = {.r = 192, .g = 0, .b = 0};
     save_as_ppm(&code, &color, 20, 5, "code.ppm");
     bitset_free(&code);
+    bitset_free(&blocked);
 
     return EXIT_SUCCESS;
 }
