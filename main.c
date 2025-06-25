@@ -343,6 +343,10 @@ void draw_functional_patterns(bitset_t* code, int version, int dim, bitset_t* bl
     bitset_set(blocked, dim - 8, 8);
 }
 
+void draw_data(bitset_t* code, int dim, bitset_t* blocked) {
+
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) {
         printf("%s\n", USAGE_MSG);
@@ -384,14 +388,15 @@ int main(int argc, char** argv) {
                           TOTAL_BLOCKS[(int)corr_level][version] * CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
     uint8_t result[total_codewords];
     add_error_correction_and_interleave(&bitstream, corr_level, version, result);
-    // for (int i = 0; i < total_codewords; i++)
-    //     printf("%d\n", result[i]);
+    for (int i = 0; i < total_codewords; i++)
+        printf("%d\n", result[i]);
 
     bitset_t code;
     bitset_init(&code, dim, dim);
     bitset_t blocked;
     bitset_init(&blocked, dim, dim);
     draw_functional_patterns(&code, version, dim, &blocked);
+    draw_data(&code, dim, &blocked);
 
     free(bitstream.values);
     rgb_color_t color = {.r = 192, .g = 0, .b = 0};

@@ -63,10 +63,9 @@ void compute_corr_codewords(int* gen_poly, uint8_t* msg_bytes, int block_start, 
         if (i >= block_len - n_corr_codewords - 1)
             res[n_corr_codewords] = 0;
     }
-    memcpy(corr_codewords, res, n_corr_codewords * sizeof(uint8_t));
-    // for (int i = 0; i < n_corr_codewords; i++) {
-    //     corr_codewords[i] = res[i];
-    // }
+    for (int i = 0; i < n_corr_codewords; i++) {
+        corr_codewords[i] = res[i];
+    }
     free(res);
 }
 
