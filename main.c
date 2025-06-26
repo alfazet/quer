@@ -1,7 +1,10 @@
 // based on ISO-18004
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+// TODO: move imports
+// TODO: use stdbool
 
 #include "bitset.h"
 #include "reed_solomon.h"
@@ -70,6 +73,24 @@ static const int VERSION_INFO[41] = {0,       0,       0,       0,       0,     
                                      0x12A17, 0x13532, 0x149A6, 0x15683, 0x168C9, 0x177EC, 0x18EC4, 0x191E1, 0x1AFAB,
                                      0x1B08E, 0x1CC1A, 0x1D33F, 0x1ED75, 0x1F250, 0x209D5, 0x216F0, 0x228BA, 0x2379F,
                                      0x24B0B, 0x2542E, 0x26A64, 0x27541, 0x28C69};
+
+int mask0(int i, int j) { return ((i + j) % 2) == 0; }
+
+int mask1(int i, int j) { return (i % 2) == 0; }
+
+int mask2(int i, int j) { return (j % 3) == 0; }
+
+int mask3(int i, int j) { return ((i + j) % 3) == 0; }
+
+int mask4(int i, int j) { return ((i / 2 + j / 3) % 2) == 0; }
+
+int mask5(int i, int j) { return ((i * j) % 2 + (i * j) % 3) == 0; }
+
+int mask6(int i, int j) { return (((i * j) % 2 + (i * j) % 3) % 2) == 0; }
+
+int mask7(int i, int j) { return (((i + j) % 2 + (i * j) % 3) % 2) == 0; }
+
+int (*masks[8])(int, int) = {mask0, mask1, mask2, mask3, mask4, mask5, mask6, mask7};
 
 enum corr_level_t {
     CORR_L,
@@ -343,9 +364,77 @@ void draw_functional_patterns(bitset_t* code, int version, int dim, bitset_t* bl
     bitset_set(blocked, dim - 8, 8);
 }
 
-void draw_data(bitset_t* code, int dim, bitset_t* blocked) {
-
+void draw_data(bitset_t* code, uint8_t* data, int data_len, int dim, bitset_t* blocked) {
+    // printf("bitstream length in bytes: %d\n", data_len);
+    int bit = 7, byte = 0;
+    for (int col = dim - 1; col >= 1; col -= 2) {
+        /*
+           0 1
+           2 3
+           4 5
+           6 7
+        */
+        for (int r = 0; r < dim; r++) {
+            int row = ((dim - 1 - col) % 4 == 0) ? dim - 1 - r : r;
+            for (int side = 0; side >= -1; side--) {
+                if (bitset_get(blocked, row, col + side) > 0)
+                    continue;
+                if ((data[byte] & (1 << bit)) > 0) {
+                    bitset_set(code, row, col + side);
+                }
+                bit--;
+                if (bit < 0) {
+                    bit = 7;
+                    byte++;
+                }
+                if (byte == data_len)
+                    return;
+            }
+        }
+    }
+    // we ignore remainder bits because they've already been zeroed
 }
+
+void apply_mask(bitset_t* code, int dim, bitset_t* blocked, int mask_i) {
+    for (int y = 0; y < dim; y++) {
+        for (int x = 0; x < dim; x++) {
+            if (bitset_get(blocked, x, y) == 0) {
+                if (masks[mask_i](y, x) > 0) {
+                    bitset_negate(code, y, x);
+                }
+            }
+        }
+    }
+}
+
+void draw_format_info(bitset_t* code, int dim, int mask_i, enum corr_level_t corr_level) {
+    int corr_level_i;
+    switch (corr_level) {
+        case CORR_L:
+            corr_level_i = 0b01;
+            break;
+        case CORR_M:
+            corr_level_i = 0b00;
+            break;
+        case CORR_Q:
+            corr_level_i = 0b11;
+            break;
+        case CORR_H:
+            corr_level_i = 0b10;
+            break;
+    }
+    uint16_t info_code = 0;
+    info_code |= (corr_level_i << 14);
+    info_code |= (mask_i << 11);
+    // division of polynomials encoded in bitmasks
+    uint16_t rem = info_code, gen_poly = 0b0000010100110111;
+    // TODO
+    // printf("%d\n", info_code);
+    info_code ^= 0b1010100000100100;
+    // draw
+}
+
+int get_penalty(bitset_t* code, int dim, bitset_t* blocked) { return 0; }
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -378,6 +467,7 @@ int main(int argc, char** argv) {
         printf("input too long to be stored in a QR code with the specified error correction capacity\n");
         return EXIT_FAILURE;
     }
+    // printf("version: %d, ecl: %d\n", version, (int)corr_level);
 
     int dim = 4 * version + 17;
     bitstream_t bitstream = {.len_bytes = 0, .len_bits = 0};
@@ -386,19 +476,34 @@ int main(int argc, char** argv) {
 
     int total_codewords = TOTAL_DATA_CODEWORDS[(int)corr_level][version] +
                           TOTAL_BLOCKS[(int)corr_level][version] * CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
-    uint8_t result[total_codewords];
-    add_error_correction_and_interleave(&bitstream, corr_level, version, result);
-    for (int i = 0; i < total_codewords; i++)
-        printf("%d\n", result[i]);
+    uint8_t final_codewords[total_codewords];
+    add_error_correction_and_interleave(&bitstream, corr_level, version, final_codewords);
+    free(bitstream.values);
+    // printf("total codewords: %d\n", total_codewords);
+    // for (int i = 0; i < total_codewords; i++)
+    //     printf("%d\n", result[i]);
 
     bitset_t code;
     bitset_init(&code, dim, dim);
     bitset_t blocked;
     bitset_init(&blocked, dim, dim);
     draw_functional_patterns(&code, version, dim, &blocked);
-    draw_data(&code, dim, &blocked);
+    draw_data(&code, final_codewords, total_codewords, dim, &blocked);
 
-    free(bitstream.values);
+    int best_mask_i = -1, min_penalty = INT_MAX;
+    for (int mask_i = 0; mask_i < 8; mask_i++) {
+        apply_mask(&code, dim, &blocked, mask_i);
+        draw_format_info(&code, dim, mask_i, corr_level);
+        int penalty = get_penalty(&code, dim, &blocked);
+        apply_mask(&code, dim, &blocked, mask_i);
+        if (penalty < min_penalty) {
+            best_mask_i = mask_i;
+            min_penalty = penalty;
+        }
+    }
+    apply_mask(&code, dim, &blocked, best_mask_i);
+    draw_format_info(&code, dim, best_mask_i, corr_level);
+
     rgb_color_t color = {.r = 192, .g = 0, .b = 0};
     save_as_ppm(&code, &color, 20, 5, "code.ppm");
     bitset_free(&code);
