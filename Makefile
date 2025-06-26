@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-Wall -Wextra -Wpedantic -Wshadow -g
 TARGET=qr.out
 OBJS=main.o bitset.o reed_solomon.o
-LD_LIBS=
+LD_LIBS= -lm
 LD_FLAGS=-fsanitize=address,undefined -fanalyzer
 
 all: $(TARGET)

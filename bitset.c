@@ -22,7 +22,7 @@ int bitset_get(bitset_t* bset, int r, int c) {
     int cell_r = r % CELL_SIZE;
     int cell_c = c % CELL_SIZE;
     int bit = CELL_SIZE * cell_r + cell_c;
-    return bset->arr[arr_r][arr_c] & (1 << bit);
+    return (bset->arr[arr_r][arr_c] & (1 << bit)) > 0;
 }
 
 void bitset_set(bitset_t* bset, int r, int c) {
@@ -61,7 +61,7 @@ void bitset_free(bitset_t* bset) {
 void bitset_print(bitset_t* bset) {
     for (int r = 0; r < bset->height; r++) {
         for (int c = 0; c < bset->width; c++) {
-            printf("%d ", bitset_get(bset, r, c) == 0 ? 0 : 1);
+            printf("%d ", bitset_get(bset, r, c));
         }
         printf("\n");
     }

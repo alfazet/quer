@@ -1,8 +1,7 @@
 #include <stdint.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-// sqrt(length of the used type)
 #define CELL_SIZE 4
 
 typedef struct bitset_t {
@@ -18,5 +17,5 @@ int bitset_get(bitset_t* bset, int r, int c);
 void bitset_set(bitset_t* bset, int r, int c);
 void bitset_unset(bitset_t* bset, int r, int c);
 void bitset_negate(bitset_t* bset, int r, int c);
-void bitset_free(bitset_t *bset);
-void bitset_print(bitset_t *bset);
+void bitset_free(bitset_t* bset);
+void bitset_print(bitset_t* bset);

@@ -1,17 +1,12 @@
-// based on ISO-18004
 #include <limits.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-// TODO: move imports
-// TODO: use stdbool
+#include <math.h>
 
 #include "bitset.h"
 #include "reed_solomon.h"
 
 #define ERR_AND_DIE(...) \
     (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
-static const char* USAGE_MSG = "Usage: ./qr <data> [error correction level]";
+static const char* USAGE_MSG = "Usage: ./qr <data> [error correction level -l/-m/-q/-h]";
 
 // data capacity (in bytes) for given error correction level and version
 static const int CAPACITY[4][41] = {
@@ -75,21 +70,13 @@ static const int VERSION_INFO[41] = {0,       0,       0,       0,       0,     
                                      0x24B0B, 0x2542E, 0x26A64, 0x27541, 0x28C69};
 
 int mask0(int i, int j) { return ((i + j) % 2) == 0; }
-
 int mask1(int i, int j) { return (i % 2) == 0; }
-
 int mask2(int i, int j) { return (j % 3) == 0; }
-
 int mask3(int i, int j) { return ((i + j) % 3) == 0; }
-
 int mask4(int i, int j) { return ((i / 2 + j / 3) % 2) == 0; }
-
 int mask5(int i, int j) { return ((i * j) % 2 + (i * j) % 3) == 0; }
-
 int mask6(int i, int j) { return (((i * j) % 2 + (i * j) % 3) % 2) == 0; }
-
 int mask7(int i, int j) { return (((i + j) % 2 + (i * j) % 3) % 2) == 0; }
-
 int (*masks[8])(int, int) = {mask0, mask1, mask2, mask3, mask4, mask5, mask6, mask7};
 
 enum corr_level_t {
@@ -125,7 +112,7 @@ void save_as_ppm(bitset_t* code, rgb_color_t* color, int mod_sz, int padding, ch
     memset(buf, 255, 3 * width * height * sizeof(uint8_t));
     for (int y = padding * mod_sz; y < height - padding * mod_sz; y += mod_sz) {
         for (int x = padding * mod_sz; x < width - padding * mod_sz; x += mod_sz) {
-            if (bitset_get(code, (y - padding * mod_sz) / mod_sz, (x - padding * mod_sz) / mod_sz) > 0) {
+            if (bitset_get(code, (y - padding * mod_sz) / mod_sz, (x - padding * mod_sz) / mod_sz)) {
                 for (int i = 0; i < mod_sz; i++) {
                     for (int j = 0; j < 3 * mod_sz; j += 3) {
                         int offset = 3 * width * (y + i) + 3 * x + j;
@@ -173,6 +160,7 @@ void add_bits_to_stream(bitstream_t* bitstream, int value, int n_bits) {
 }
 
 void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level_t corr_level, int version) {
+    // byte mode indicator
     add_bits_to_stream(bitstream, 0b0100, 4);
     add_bits_to_stream(bitstream, data_len, (version <= 9 ? 8 : 16));
     for (int i = 0; i < data_len; i++) {
@@ -209,7 +197,6 @@ void add_error_correction_and_interleave(bitstream_t* bitstream, enum corr_level
         int block_len = (i < n_small_blocks ? small_block_len : small_block_len + 1);
         compute_corr_codewords(gen_poly, bitstream->values, block_start, block_len, n_corr_codewords_per_block,
                                corr_codewords);
-        // interleave
         for (int j = 0; j < block_len; j++)
             res[i + n_blocks * j] = bitstream->values[block_start + j];
         for (int j = 0; j < n_corr_codewords_per_block; j++)
@@ -365,7 +352,6 @@ void draw_functional_patterns(bitset_t* code, int version, int dim, bitset_t* bl
 }
 
 void draw_data(bitset_t* code, uint8_t* data, int data_len, int dim, bitset_t* blocked) {
-    // printf("bitstream length in bytes: %d\n", data_len);
     int bit = 7, byte = 0;
     for (int col = dim - 1; col >= 1; col -= 2) {
         /*
@@ -377,7 +363,7 @@ void draw_data(bitset_t* code, uint8_t* data, int data_len, int dim, bitset_t* b
         for (int r = 0; r < dim; r++) {
             int row = ((dim - 1 - col) % 4 == 0) ? dim - 1 - r : r;
             for (int side = 0; side >= -1; side--) {
-                if (bitset_get(blocked, row, col + side) > 0)
+                if (bitset_get(blocked, row, col + side))
                     continue;
                 if ((data[byte] & (1 << bit)) > 0) {
                     bitset_set(code, row, col + side);
@@ -392,13 +378,13 @@ void draw_data(bitset_t* code, uint8_t* data, int data_len, int dim, bitset_t* b
             }
         }
     }
-    // we ignore remainder bits because they've already been zeroed
+    // we ignore remainder bits because they've already been zeroed by default
 }
 
 void apply_mask(bitset_t* code, int dim, bitset_t* blocked, int mask_i) {
     for (int y = 0; y < dim; y++) {
         for (int x = 0; x < dim; x++) {
-            if (bitset_get(blocked, x, y) == 0) {
+            if (!bitset_get(blocked, x, y)) {
                 if (masks[mask_i](y, x) > 0) {
                     bitset_negate(code, y, x);
                 }
@@ -423,18 +409,214 @@ void draw_format_info(bitset_t* code, int dim, int mask_i, enum corr_level_t cor
             corr_level_i = 0b10;
             break;
     }
-    uint16_t info_code = 0;
-    info_code |= (corr_level_i << 14);
-    info_code |= (mask_i << 11);
+    uint16_t info_code = (corr_level_i << 3) | mask_i;
     // division of polynomials encoded in bitmasks
     uint16_t rem = info_code, gen_poly = 0b0000010100110111;
-    // TODO
-    // printf("%d\n", info_code);
-    info_code ^= 0b1010100000100100;
-    // draw
+    for (int i = 0; i < 10; i++)
+        rem = (rem << 1) ^ ((rem >> 9) * gen_poly);
+    info_code |= rem;
+    info_code = (info_code << 10 | rem) ^ 0b0101010000010010;
+
+    for (int y = 0; y < 6; y++) {
+        if ((info_code & (1 << y)) > 0)
+            bitset_set(code, y, 8);
+        else
+            bitset_unset(code, y, 8);
+    }
+    if ((info_code & (1 << 6)) > 0)
+        bitset_set(code, 7, 8);
+    else
+        bitset_unset(code, 7, 8);
+    for (int x = 7; x < 15; x++) {
+        if ((info_code & (1 << x)) > 0)
+            bitset_set(code, 8, 14 - x);
+        else
+            bitset_unset(code, 8, 14 - x);
+    }
+    for (int x = 0; x < 8; x++) {
+        if ((info_code & (1 << x)) > 0)
+            bitset_set(code, 8, dim - 1 - x);
+        else
+            bitset_unset(code, 8, dim - 1 - x);
+    }
+    for (int y = 0; y < 7; y++) {
+        if ((info_code & (1 << (14 - y))) > 0)
+            bitset_set(code, dim - 1 - y, 8);
+        else
+            bitset_unset(code, dim - 1 - y, 8);
+    }
 }
 
-int get_penalty(bitset_t* code, int dim, bitset_t* blocked) { return 0; }
+int check_finder_pattern_ver(bitset_t* code, int y, int x, int r, int dir) {
+    int pos = y;
+    for (int i = 0; i < r; i++) {
+        if (!bitset_get(code, pos, x))
+            return 0;
+        pos += dir;
+    }
+    for (int i = 0; i < r; i++) {
+        if (bitset_get(code, pos, x))
+            return 0;
+        pos += dir;
+    }
+    for (int i = 0; i < 3 * r; i++) {
+        if (!bitset_get(code, pos, x))
+            return 0;
+        pos += dir;
+    }
+    for (int i = 0; i < r; i++) {
+        if (bitset_get(code, pos, x))
+            return 0;
+        pos += dir;
+    }
+    for (int i = 0; i < r; i++) {
+        if (!bitset_get(code, pos, x))
+            return 0;
+        pos += dir;
+    }
+    return 1;
+}
+
+int check_finder_pattern_hor(bitset_t* code, int y, int x, int r, int dir) {
+    int pos = x;
+    for (int i = 0; i < r; i++) {
+        if (!bitset_get(code, y, pos))
+            return 0;
+        pos += dir;
+    }
+    for (int i = 0; i < r; i++) {
+        if (bitset_get(code, y, pos))
+            return 0;
+        pos += dir;
+    }
+    for (int i = 0; i < 3 * r; i++) {
+        if (!bitset_get(code, y, pos))
+            return 0;
+        pos += dir;
+    }
+    for (int i = 0; i < r; i++) {
+        if (bitset_get(code, y, pos))
+            return 0;
+        pos += dir;
+    }
+    for (int i = 0; i < r; i++) {
+        if (!bitset_get(code, y, pos))
+            return 0;
+        pos += dir;
+    }
+    return 1;
+}
+
+int get_penalty(bitset_t* code, int dim, bitset_t* blocked) {
+    int penalty = 0;
+    // monochromatic streaks of >= 5 modules
+    for (int y = 0; y < dim; y++) {
+        int cur_streak = 1, prev_color = bitset_get(code, y, 0);
+        for (int x = 1; x < dim; x++) {
+            int cur_color = bitset_get(code, y, x);
+            if (cur_color == prev_color)
+                cur_streak++;
+            else {
+                if (cur_streak >= 5) {
+                    penalty += 3 + (cur_streak - 5);
+                }
+                cur_streak = 1;
+            }
+            prev_color = cur_color;
+        }
+        if (cur_streak >= 5) {
+            penalty += 3 + (cur_streak - 5);
+        }
+    }
+    for (int x = 0; x < dim; x++) {
+        int cur_streak = 1, prev_color = bitset_get(code, 0, x);
+        for (int y = 1; y < dim; y++) {
+            int cur_color = bitset_get(code, y, x);
+            if (cur_color == prev_color)
+                cur_streak++;
+            else {
+                if (cur_streak >= 5) {
+                    penalty += 3 + (cur_streak - 5);
+                }
+                cur_streak = 1;
+            }
+            prev_color = cur_color;
+        }
+        if (cur_streak >= 5) {
+            penalty += 3 + (cur_streak - 5);
+        }
+    }
+
+    // 2x2 monochromatic blocks
+    for (int y = 0; y < dim - 1; y++) {
+        for (int x = 0; x < dim - 1; x++) {
+            if (bitset_get(code, y, x) == bitset_get(code, y + 1, x) == bitset_get(code, y, x + 1) ==
+                bitset_get(code, y + 1, x + 1))
+                penalty += 3;
+        }
+    }
+
+    // 1:1:3:1:1 pattern preceded/followed by 4 light modules
+    for (int y = 0; y < dim; y++) {
+        for (int x = 0; x < dim; x++) {
+            if (y >= 4 && !(bitset_get(code, y, x) | bitset_get(code, y - 1, x) | bitset_get(code, y - 2, x) |
+                            bitset_get(code, y - 3, x))) {
+                int r = 1;
+                while (y - 7 * r >= 0) {
+                    if (check_finder_pattern_ver(code, y - 4, x, r, -1)) {
+                        penalty += 40;
+                        break;
+                    }
+                    r++;
+                }
+            }
+            if (y + 4 < dim && !(bitset_get(code, y, x) | bitset_get(code, y + 1, x) | bitset_get(code, y + 2, x) |
+                                 bitset_get(code, y + 3, x))) {
+                int r = 1;
+                while (y + 7 * r < dim) {
+                    if (check_finder_pattern_ver(code, y + 4, x, r, 1)) {
+                        penalty += 40;
+                        break;
+                    }
+                    r++;
+                }
+            }
+            if (x + 4 < dim && !(bitset_get(code, y, x) | bitset_get(code, y, x + 1) | bitset_get(code, y, x + 2) |
+                                 bitset_get(code, y, x + 3))) {
+                int r = 1;
+                while (x + 7 * r < dim) {
+                    if (check_finder_pattern_hor(code, y, x + 4, r, 1)) {
+                        penalty += 40;
+                        break;
+                    }
+                    r++;
+                }
+            }
+            if (x >= 4 && !(bitset_get(code, y, x) | bitset_get(code, y, x - 1) | bitset_get(code, y, x - 2) |
+                            bitset_get(code, y, x - 3))) {
+                int r = 1;
+                while (x - 7 * r >= 0) {
+                    if (check_finder_pattern_hor(code, y, x - 4, r, -1)) {
+                        penalty += 40;
+                        break;
+                    }
+                    r++;
+                }
+            }
+        }
+    }
+
+    // proportion of dark modules
+    int dark_count = 0;
+    for (int y = 0; y < dim; y++) {
+        for (int x = 0; x < dim; x++)
+            dark_count += bitset_get(code, y, x);
+    }
+    double proportion = (double)dark_count / (dim * dim) * 100;
+    penalty += 10 * (int)floor(fabs(proportion - 50) / 5);
+
+    return penalty;
+}
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -496,6 +678,7 @@ int main(int argc, char** argv) {
         draw_format_info(&code, dim, mask_i, corr_level);
         int penalty = get_penalty(&code, dim, &blocked);
         apply_mask(&code, dim, &blocked, mask_i);
+        printf("%d penalty with mask %d\n", penalty, mask_i);
         if (penalty < min_penalty) {
             best_mask_i = mask_i;
             min_penalty = penalty;
@@ -504,8 +687,8 @@ int main(int argc, char** argv) {
     apply_mask(&code, dim, &blocked, best_mask_i);
     draw_format_info(&code, dim, best_mask_i, corr_level);
 
-    rgb_color_t color = {.r = 192, .g = 0, .b = 0};
-    save_as_ppm(&code, &color, 20, 5, "code.ppm");
+    rgb_color_t color = {.r = 0, .g = 0, .b = 0};
+    save_as_ppm(&code, &color, 20, 10, "code.ppm");
     bitset_free(&code);
     bitset_free(&blocked);
 
