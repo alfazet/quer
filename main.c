@@ -574,10 +574,10 @@ int get_penalty(bitset_t* code, int dim) {
     // 1:1:3:1:1 pattern preceded/followed by 4 light modules
     for (int y = 0; y < dim; y++) {
         for (int x = 0; x < dim; x++) {
-            if (y >= 4 && !(bitset_get(code, y, x) & bitset_get(code, y - 1, x) & bitset_get(code, y - 2, x) &
+            if (y >= 4 && !(bitset_get(code, y, x) | bitset_get(code, y - 1, x) | bitset_get(code, y - 2, x) |
                             bitset_get(code, y - 3, x))) {
                 int r = 1;
-                while (y - 7 * r >= 0) {
+                while (y - 3 - 7 * r >= 0) {
                     if (check_finder_pattern_ver(code, y - 4, x, r, -1)) {
                         penalty += 40;
                         break;
@@ -585,10 +585,10 @@ int get_penalty(bitset_t* code, int dim) {
                     r++;
                 }
             }
-            if (y + 4 < dim && !(bitset_get(code, y, x) & bitset_get(code, y + 1, x) & bitset_get(code, y + 2, x) &
+            if (y + 4 < dim && !(bitset_get(code, y, x) | bitset_get(code, y + 1, x) | bitset_get(code, y + 2, x) |
                                  bitset_get(code, y + 3, x))) {
                 int r = 1;
-                while (y + 7 * r < dim) {
+                while (y + 3 + 7 * r < dim) {
                     if (check_finder_pattern_ver(code, y + 4, x, r, 1)) {
                         penalty += 40;
                         break;
@@ -596,10 +596,10 @@ int get_penalty(bitset_t* code, int dim) {
                     r++;
                 }
             }
-            if (x + 4 < dim && !(bitset_get(code, y, x) & bitset_get(code, y, x + 1) & bitset_get(code, y, x + 2) &
+            if (x + 4 < dim && !(bitset_get(code, y, x) | bitset_get(code, y, x + 1) | bitset_get(code, y, x + 2) |
                                  bitset_get(code, y, x + 3))) {
                 int r = 1;
-                while (x + 7 * r < dim) {
+                while (x + 3 + 7 * r < dim) {
                     if (check_finder_pattern_hor(code, y, x + 4, r, 1)) {
                         penalty += 40;
                         break;
@@ -607,10 +607,10 @@ int get_penalty(bitset_t* code, int dim) {
                     r++;
                 }
             }
-            if (x >= 4 && !(bitset_get(code, y, x) & bitset_get(code, y, x - 1) & bitset_get(code, y, x - 2) &
+            if (x >= 4 && !(bitset_get(code, y, x) | bitset_get(code, y, x - 1) | bitset_get(code, y, x - 2) |
                             bitset_get(code, y, x - 3))) {
                 int r = 1;
-                while (x - 7 * r >= 0) {
+                while (x - 3 - 7 * r >= 0) {
                     if (check_finder_pattern_hor(code, y, x - 4, r, -1)) {
                         penalty += 40;
                         break;
@@ -677,9 +677,11 @@ int main(int argc, char** argv) {
     free(bitstream.values);
 
     bitset_t code;
-    bitset_init(&code, dim, dim);
+    if (bitset_init(&code, dim, dim) == -1)
+        ERR_AND_DIE("malloc");
     bitset_t blocked;
-    bitset_init(&blocked, dim, dim);
+    if (bitset_init(&blocked, dim, dim) == -1)
+        ERR_AND_DIE("malloc");
     draw_functional_patterns(&code, version, dim, &blocked);
     draw_data(&code, final_codewords, total_codewords, dim, &blocked);
 
@@ -688,6 +690,7 @@ int main(int argc, char** argv) {
         apply_mask(&code, dim, &blocked, mask_i);
         draw_format_info(&code, dim, mask_i, corr_level);
         int penalty = get_penalty(&code, dim);
+        printf("pentalty %d for mask %d\n", penalty, mask_i);
         apply_mask(&code, dim, &blocked, mask_i);
         if (penalty < min_penalty) {
             best_mask_i = mask_i;

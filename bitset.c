@@ -22,6 +22,8 @@ int bitset_get(bitset_t* bset, int r, int c) {
     int cell_r = r % CELL_SIZE;
     int cell_c = c % CELL_SIZE;
     int bit = CELL_SIZE * cell_r + cell_c;
+    if (bit < 0)
+        printf("bad: %d, %d\n", r, c);
     return (bset->arr[arr_r][arr_c] & (1 << bit)) > 0;
 }
 
