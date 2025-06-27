@@ -11,7 +11,7 @@ $(TARGET): $(OBJS)
 	$(CC) $(LD_FLAGS) $(LD_LIBS) -o $@ $^
 
 %.o: %.c %.h
-	$(CC) $(CFLAGS) -o $@ -c $<
+	$(CC) $(LD_FLAGS) $(CFLAGS) -o $@ -c $<
 
 clean:
 	rm -f $(TARGET)
