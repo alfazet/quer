@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -Wpedantic -Wshadow -g
-TARGET=qr.out
+TARGET=quer.out
 OBJS=main.o bitset.o reed_solomon.o
 LD_LIBS= -lm
 LD_FLAGS=-fsanitize=address,undefined -fanalyzer

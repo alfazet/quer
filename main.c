@@ -1,3 +1,11 @@
+/* TODO:
+- check if given input file exists and print a "nice" error if it doesn't
+- replace bitmask operations (poly divison) with something less magical
+- numeric/alphanumeric/kanji modes
+- split into more files
+*/
+
+#include <getopt.h>
 #include <limits.h>
 #include <math.h>
 
@@ -6,9 +14,11 @@
 
 #define ERR_AND_DIE(...) \
     (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
-static const char* USAGE_MSG = "Usage: ./qr <data> [error correction level -l/-m/-q/-h]";
+#define USAGE_STR                                                                                                    \
+    "quer [-f input_file (default: stdin)] [-[l]ow/-[m]edium/-[q]uartile/-[h]igh (error correction capacity, default: " \
+    "-l)]"
 
-// data capacity (in bytes) for given error correction level and version
+// data capacity (in bytes) for given error correction capacity and version
 static const int CAPACITY[4][41] = {
     {0,    17,   32,   53,   78,   106,  134,  154,  190,  226,  262,  321,  367,  419,
      461,  523,  589,  647,  714,  792,  858,  929,  1003, 1091, 1171, 1273, 1367, 1465,
@@ -20,8 +30,9 @@ static const int CAPACITY[4][41] = {
      509, 565, 611, 661, 715, 751, 805, 868, 908, 982, 1030, 1112, 1168, 1228, 1283, 1351, 1423, 1499, 1579, 1663},
     {0,   7,   14,  24,  34,  44,  58,  64,  84,  98,  119, 137, 155, 177, 194, 220,  250,  280,  310,  338, 382,
      403, 439, 461, 511, 535, 593, 625, 658, 698, 742, 790, 842, 898, 958, 983, 1051, 1093, 1139, 1219, 1273}};
+static const size_t MAX_CAPACITY = 2953;
 
-// total number of data codewords for given error correction level and version
+// total number of data codewords for given error correction capacity and version
 static const int TOTAL_DATA_CODEWORDS[4][41] = {
     {0,    19,   34,   55,   80,   108,  136,  156,  194,  232,  274,  324,  370,  428,
      461,  523,  589,  647,  721,  795,  861,  932,  1006, 1094, 1174, 1276, 1370, 1468,
@@ -91,19 +102,13 @@ enum corr_level_t {
     CORR_H,
 };
 
-typedef struct rgb_color_t {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-} rgb_color_t;
-
 typedef struct bitstream_t {
     uint8_t* values;
     int len_bytes;
     int len_bits;
 } bitstream_t;
 
-void save_as_ppm(bitset_t* code, rgb_color_t* color, int mod_sz, int padding, char* filename) {
+void save_as_ppm(bitset_t* code, int mod_sz, int padding, char* filename) {
     FILE* file = fopen(filename, "w");
     if (file == NULL)
         ERR_AND_DIE("fopen");
@@ -121,9 +126,7 @@ void save_as_ppm(bitset_t* code, rgb_color_t* color, int mod_sz, int padding, ch
                 for (int i = 0; i < mod_sz; i++) {
                     for (int j = 0; j < 3 * mod_sz; j += 3) {
                         int offset = 3 * width * (y + i) + 3 * x + j;
-                        buf[offset + 0] = color->r;
-                        buf[offset + 1] = color->g;
-                        buf[offset + 2] = color->b;
+                        memset(buf + offset, 0, 3 * sizeof(uint8_t));
                     }
                 }
             }
@@ -640,56 +643,89 @@ int get_penalty(bitset_t* code, int dim) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        printf("%s\n", USAGE_MSG);
+    int c, parse_err = 0;
+    char* input_file = NULL;
+    enum corr_level_t corr_level = CORR_L;
+    while ((c = getopt(argc, argv, "f:lmqh")) != -1) {
+        switch (c) {
+            case 'f':
+                input_file = optarg;
+                break;
+            case 'l':
+                corr_level = CORR_L;
+                break;
+            case 'm':
+                corr_level = CORR_M;
+                break;
+            case 'q':
+                corr_level = CORR_Q;
+                break;
+            case 'h':
+                corr_level = CORR_H;
+                break;
+            case ':':
+                fprintf(stderr, "Option -%c requires an argument.\n", optopt);
+                parse_err = 1;
+                break;
+            case '?':
+                parse_err = 1;
+                break;
+        }
+    }
+    if (parse_err) {
+        fprintf(stderr, "%s\n", USAGE_STR);
         return EXIT_FAILURE;
     }
-    char* data = argv[1];
-    int data_len = strlen(data);
-    enum corr_level_t corr_level = CORR_L;
-    if (argc >= 3) {
-        char* flag = argv[2];
-        if (strcmp(flag, "-l") == 0) {
-            corr_level = CORR_L;
+
+    char data[MAX_CAPACITY];
+    memset(data, 0, MAX_CAPACITY * sizeof(char));
+    if (input_file != NULL) {
+        FILE* file = fopen(input_file, "r");
+        if (file == NULL)
+            ERR_AND_DIE("fopen");
+        fseek(file, 0, SEEK_END);
+        size_t file_size = ftell(file);
+        fseek(file, 0, SEEK_SET);
+        if (file_size > MAX_CAPACITY) {
+            fprintf(stderr, "Input is too long to be stored in any QR code\n");
+            if (fclose(file))
+                ERR_AND_DIE("fclose");
+            return EXIT_FAILURE;
         }
-        if (strcmp(flag, "-m") == 0) {
-            corr_level = CORR_M;
-        }
-        if (strcmp(flag, "-q") == 0) {
-            corr_level = CORR_Q;
-        }
-        if (strcmp(flag, "-h") == 0) {
-            corr_level = CORR_H;
-        }
+        if (fread(data, sizeof(char), file_size, file) != file_size)
+            ERR_AND_DIE("fread");
+        if (fclose(file))
+            ERR_AND_DIE("fclose");
+    } else {
+        if (fgets(data, MAX_CAPACITY, stdin) == NULL)
+            ERR_AND_DIE("fgets");
     }
 
+    int data_len = strlen(data);
     int version = 1;
     while (version <= 40 && CAPACITY[(int)corr_level][version] < data_len)
         version++;
     if (version > 40) {
-        printf("Specified input too long to be stored in a QR code with the specified error correction capacity\n");
+        fprintf(stderr, "Input is too long to be stored in a QR code with the specified error correction capacity\n");
         return EXIT_FAILURE;
     }
 
     int dim = 4 * version + 17;
-    bitstream_t bitstream = {.len_bytes = 0, .len_bits = 0};
-    bitstream.values = calloc(TOTAL_AVAILABLE_MODULES[version] / 8 + 1, sizeof(uint8_t));
+    uint8_t values[TOTAL_AVAILABLE_MODULES[version] / 8 + 1];
+    bitstream_t bitstream = {.len_bytes = 0, .len_bits = 0, .values = values};
     fill_data(&bitstream, data, data_len, corr_level, version);
 
-    int total_codewords = TOTAL_DATA_CODEWORDS[(int)corr_level][version] +
-                          TOTAL_BLOCKS[(int)corr_level][version] * CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
-    uint8_t final_codewords[total_codewords];
+    int n_codewords = TOTAL_DATA_CODEWORDS[(int)corr_level][version] +
+                      TOTAL_BLOCKS[(int)corr_level][version] * CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
+    uint8_t final_codewords[n_codewords];
     add_error_correction_and_interleave(&bitstream, corr_level, version, final_codewords);
-    free(bitstream.values);
-
-    bitset_t code;
+    bitset_t code, blocked;
     if (bitset_init(&code, dim, dim) == -1)
         ERR_AND_DIE("bitset_init");
-    bitset_t blocked;
     if (bitset_init(&blocked, dim, dim) == -1)
         ERR_AND_DIE("bitset_init");
     draw_functional_patterns(&code, version, dim, &blocked);
-    draw_data(&code, final_codewords, total_codewords, dim, &blocked);
+    draw_data(&code, final_codewords, n_codewords, dim, &blocked);
 
     int best_mask_i = -1, min_penalty = INT_MAX;
     for (int mask_i = 0; mask_i < 8; mask_i++) {
@@ -705,8 +741,7 @@ int main(int argc, char** argv) {
     apply_mask(&code, dim, &blocked, best_mask_i);
     draw_format_info(&code, dim, best_mask_i, corr_level);
 
-    rgb_color_t color = {.r = 0, .g = 0, .b = 0};
-    save_as_ppm(&code, &color, 20, 10, "code.ppm");
+    save_as_ppm(&code, 20, 10, "code.ppm");
     bitset_free(&code);
     bitset_free(&blocked);
 
