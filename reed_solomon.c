@@ -1,5 +1,4 @@
 #include "reed_solomon.h"
-#include <stdint.h>
 
 int pow_2[MAX_N + 1];
 int log_2[MAX_N + 1];
@@ -59,12 +58,13 @@ void compute_corr_codewords(int* gen_poly, uint8_t* msg_bytes, int block_start, 
         res[i] = 0;
     for (int i = 0; i < block_len; i++) {
         int coeff_exp = log_2[res[0]];
-        for (int j = 0; j < n_corr_codewords + 1; j++)
+        for (int j = 0; j < n_corr_codewords + 1; j++) {
             res[j] ^= pow_2[(log_2[gen_poly[j]] + coeff_exp) % MAX_N];
+        }
         for (int j = 0; j < degree - 1; j++)
             res[j] = res[j + 1];
         if (i >= degree - n_corr_codewords - 1)
-            res[degree - 1] = 0;
+            res[n_corr_codewords] = 0;
     }
     for (int i = 0; i < n_corr_codewords; i++)
         corr_codewords[i] = res[i];

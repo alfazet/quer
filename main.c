@@ -29,9 +29,8 @@ static const int TOTAL_DATA_CODEWORDS[4][41] = {
     {0,    16,   28,   44,   64,   86,   108,  124,  154,  182,  216,  254,  290,  334,
      365,  415,  453,  507,  563,  627,  669,  714,  782,  860,  914,  1000, 1062, 1128,
      1193, 1267, 1373, 1455, 1541, 1631, 1725, 1812, 1914, 1992, 2102, 2216, 2334},
-    {0,    13,   22,   34,   48,   62,   76,   88,   110,  132,  154,  178,  204,  224,
-     279,  335,  395,  468,  535,  619,  667,  714,  782,  860,  914,  1000, 1062, 1128,
-     1193, 1267, 1373, 1455, 1541, 1631, 1725, 1812, 1914, 1992, 2102, 2216, 2334},
+    {0,   13,  22,  34,  48,  62,  76,  88,  110, 132, 154,  180,  206,  244,  261,  295,  325,  367,  397,  445, 485,
+     512, 568, 614, 664, 718, 754, 808, 871, 911, 985, 1033, 1115, 1171, 1231, 1286, 1354, 1426, 1502, 1582, 1666},
     {0,   9,   16,  26,  36,  46,  60,  66,  86,  100, 122, 140, 158, 180, 197, 223,  253,  283,  313,  341, 385,
      406, 442, 464, 514, 538, 596, 628, 661, 701, 745, 793, 845, 901, 961, 986, 1054, 1096, 1142, 1222, 1276}};
 
@@ -192,24 +191,31 @@ void add_error_correction_and_interleave(bitstream_t* bitstream, enum corr_level
     int corr_offset = TOTAL_DATA_CODEWORDS[(int)corr_level][version];
     int n_small_blocks = n_blocks - n_all_codewords % n_blocks;
     int small_block_len = n_all_codewords / n_blocks - n_corr_codewords_per_block;
+    int big_block_len = small_block_len + 1;
     init_lut();
 
     int gen_poly[MAX_DEGREE];
-    uint8_t* corr_codewords = malloc(n_corr_codewords_per_block * sizeof(uint8_t));
+    uint8_t corr_codewords[n_corr_codewords_per_block];
     compute_generator_poly(n_corr_codewords_per_block, gen_poly);
 
     int block_start = 0;
     for (int i = 0; i < n_blocks; i++) {
-        int block_len = (i < n_small_blocks ? small_block_len : small_block_len + 1);
+        int block_len = (i < n_small_blocks ? small_block_len : big_block_len);
         compute_corr_codewords(gen_poly, bitstream->values, block_start, block_len, n_corr_codewords_per_block,
                                corr_codewords);
-        for (int j = 0; j < block_len; j++)
-            res[i + n_blocks * j] = bitstream->values[block_start + j];
-        for (int j = 0; j < n_corr_codewords_per_block; j++)
+        int idx = i;
+        for (int j = 0; j < block_len; j++) {
+            // so that we don't leave empty spaces
+            if (j == big_block_len - 1)
+                idx -= n_small_blocks;
+            res[idx] = bitstream->values[block_start + j];
+            idx += n_blocks;
+        }
+        for (int j = 0; j < n_corr_codewords_per_block; j++) {
             res[corr_offset + i + n_blocks * j] = corr_codewords[j];
+        }
         block_start += block_len;
     }
-    free(corr_codewords);
 }
 
 void draw_separator(bitset_t* code, int sx, int sy, bitset_t* blocked) {
@@ -360,7 +366,7 @@ void draw_functional_patterns(bitset_t* code, int version, int dim, bitset_t* bl
 void draw_data(bitset_t* code, uint8_t* data, int data_len, int dim, bitset_t* blocked) {
     int bit = 7, byte = 0;
     for (int col = dim - 1; col >= 1; col -= 2) {
-        // the "parity" changes after column 6 (a column fully devoted to fucntion patterns)
+        // the "parity" changes after column 6 (a column fully devoted to function patterns)
         if (col == 6)
             col = 5;
         for (int row = 0; row < dim; row++) {
@@ -678,10 +684,10 @@ int main(int argc, char** argv) {
 
     bitset_t code;
     if (bitset_init(&code, dim, dim) == -1)
-        ERR_AND_DIE("malloc");
+        ERR_AND_DIE("bitset_init");
     bitset_t blocked;
     if (bitset_init(&blocked, dim, dim) == -1)
-        ERR_AND_DIE("malloc");
+        ERR_AND_DIE("bitset_init");
     draw_functional_patterns(&code, version, dim, &blocked);
     draw_data(&code, final_codewords, total_codewords, dim, &blocked);
 
@@ -690,7 +696,6 @@ int main(int argc, char** argv) {
         apply_mask(&code, dim, &blocked, mask_i);
         draw_format_info(&code, dim, mask_i, corr_level);
         int penalty = get_penalty(&code, dim);
-        printf("pentalty %d for mask %d\n", penalty, mask_i);
         apply_mask(&code, dim, &blocked, mask_i);
         if (penalty < min_penalty) {
             best_mask_i = mask_i;

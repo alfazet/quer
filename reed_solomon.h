@@ -1,3 +1,6 @@
+#ifndef REED_SOLOMON_H
+#define REED_SOLOMON_H
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,4 +17,4 @@ void compute_generator_poly(int deg, int poly[MAX_DEGREE]);
 void compute_corr_codewords(int* gen_poly, uint8_t* msg_bytes, int block_start, int block_len, int n_corr_codewords,
                             uint8_t* corr_codewords);
 
-// void test();
+#endif
