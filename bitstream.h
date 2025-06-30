@@ -1,0 +1,9 @@
+#include <stdint.h>
+
+typedef struct bitstream_t {
+    uint8_t* values;
+    int len_bytes;
+    int len_bits;
+} bitstream_t;
+
+void add_bits_to_stream(bitstream_t* bitstream, int value, int n_bits);

@@ -1,8 +1,5 @@
 /* TODO:
-- check if given input file exists and print a "nice" error if it doesn't
-- replace bitmask operations (poly divison) with something less magical
-- numeric/alphanumeric/kanji modes
-- split into more files
+- change .ppm to .png
 */
 
 #include <getopt.h>
@@ -10,12 +7,14 @@
 #include <math.h>
 
 #include "bitset.h"
+#include "bitstream.h"
 #include "reed_solomon.h"
 
 #define ERR_AND_DIE(...) \
     (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
-#define USAGE_STR                                                                                                    \
-    "quer [-f input_file (default: stdin)] [-[l]ow/-[m]edium/-[q]uartile/-[h]igh (error correction capacity, default: " \
+#define USAGE_STR                                                                                              \
+    "quer [-f input_file (default: stdin)] [-[l]ow/-[m]edium/-[q]uartile/-[h]igh (error correction capacity, " \
+    "default: "                                                                                                \
     "-l)]"
 
 // data capacity (in bytes) for given error correction capacity and version
@@ -102,12 +101,6 @@ enum corr_level_t {
     CORR_H,
 };
 
-typedef struct bitstream_t {
-    uint8_t* values;
-    int len_bytes;
-    int len_bits;
-} bitstream_t;
-
 void save_as_ppm(bitset_t* code, int mod_sz, int padding, char* filename) {
     FILE* file = fopen(filename, "w");
     if (file == NULL)
@@ -133,38 +126,14 @@ void save_as_ppm(bitset_t* code, int mod_sz, int padding, char* filename) {
         }
     }
     for (int i = 0; i < 3 * width * height; i++) {
-        if (fwrite(&buf[i], sizeof(buf[i]), 1, file) == 0)
+        if (fwrite(&buf[i], sizeof(buf[i]), 1, file) == 0) {
+            free(buf);
             ERR_AND_DIE("fwrite");
+        }
     }
     free(buf);
     if (fclose(file))
         ERR_AND_DIE("fclose");
-}
-
-// add lower n_bits of value to bitstream
-void add_bits_to_stream(bitstream_t* bitstream, int value, int n_bits) {
-    int tail = bitstream->len_bits % 8;
-    int b = n_bits - 1;
-    if (tail != 0) {
-        for (int i = 0; i < 8 - tail; i++) {
-            if (b < 0)
-                return;
-            bitstream->values[bitstream->len_bytes - 1] *= 2;
-            if ((value & (1 << b)) > 0)
-                bitstream->values[bitstream->len_bytes - 1]++;
-            bitstream->len_bits++;
-            b--;
-        }
-    }
-    while (b >= 0) {
-        if (bitstream->len_bits % 8 == 0)
-            bitstream->len_bytes++;
-        bitstream->values[bitstream->len_bytes - 1] *= 2;
-        if ((value & (1 << b)) > 0)
-            bitstream->values[bitstream->len_bytes - 1]++;
-        bitstream->len_bits++;
-        b--;
-    }
 }
 
 void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level_t corr_level, int version) {
@@ -426,8 +395,9 @@ void draw_format_info(bitset_t* code, int dim, int mask_i, enum corr_level_t cor
     int info_code = (corr_level_i << 3) | mask_i;
     // division of polynomials encoded in bitmasks
     int rem = info_code, gen_poly = 0b0000010100110111;
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 10; i++) {
         rem = (rem << 1) ^ ((rem >> 9) * gen_poly);
+    }
     info_code = (info_code << 10 | rem) ^ 0b0101010000010010;
 
     for (int y = 0; y < 6; y++) {
@@ -679,27 +649,20 @@ int main(int argc, char** argv) {
 
     char data[MAX_CAPACITY];
     memset(data, 0, MAX_CAPACITY * sizeof(char));
+    FILE* stream = stdin;
     if (input_file != NULL) {
-        FILE* file = fopen(input_file, "r");
-        if (file == NULL)
-            ERR_AND_DIE("fopen");
-        fseek(file, 0, SEEK_END);
-        size_t file_size = ftell(file);
-        fseek(file, 0, SEEK_SET);
-        if (file_size > MAX_CAPACITY) {
-            fprintf(stderr, "Input is too long to be stored in any QR code\n");
-            if (fclose(file))
-                ERR_AND_DIE("fclose");
+        stream = fopen(input_file, "r");
+        if (stream == NULL) {
+            fprintf(stderr, "Unable to open file `%s`\n", input_file);
             return EXIT_FAILURE;
         }
-        if (fread(data, sizeof(char), file_size, file) != file_size)
-            ERR_AND_DIE("fread");
-        if (fclose(file))
-            ERR_AND_DIE("fclose");
-    } else {
-        if (fgets(data, MAX_CAPACITY, stdin) == NULL)
-            ERR_AND_DIE("fgets");
     }
+    if (fread(data, sizeof(char), MAX_CAPACITY, stream) == 0) {
+        fprintf(stderr, "No data provided\n");
+        return EXIT_FAILURE;
+    }
+    if (fclose(stream))
+        ERR_AND_DIE("fclose");
 
     int data_len = strlen(data);
     int version = 1;
@@ -727,7 +690,7 @@ int main(int argc, char** argv) {
     draw_functional_patterns(&code, version, dim, &blocked);
     draw_data(&code, final_codewords, n_codewords, dim, &blocked);
 
-    int best_mask_i = -1, min_penalty = INT_MAX;
+    int best_mask_i = 0, min_penalty = INT_MAX;
     for (int mask_i = 0; mask_i < 8; mask_i++) {
         apply_mask(&code, dim, &blocked, mask_i);
         draw_format_info(&code, dim, mask_i, corr_level);
