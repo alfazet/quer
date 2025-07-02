@@ -1,23 +1,22 @@
-/* TODO:
-- change .ppm to .png
-*/
-
 #include <getopt.h>
 #include <limits.h>
 #include <math.h>
+#include <png.h>
 
 #include "bitset.h"
 #include "bitstream.h"
 #include "reed_solomon.h"
 
-#define ERR_AND_DIE(...) \
-    (fprintf(stderr, "%s:%d\n", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), exit(EXIT_FAILURE))
-#define USAGE_STR                                                                                              \
-    "quer [-f input_file (default: stdin)] [-[l]ow/-[m]edium/-[q]uartile/-[h]igh (error correction capacity, " \
-    "default: "                                                                                                \
-    "-l)]"
+#define ERR_AND_DIE(...)                                                                         \
+    (fprintf(stderr, "fatal error: %s:%d - ", __FILE__, __LINE__), fprintf(stderr, __VA_ARGS__), \
+     fprintf(stderr, "\n"), exit(EXIT_FAILURE))
+#define USAGE_STR                                                                                                     \
+    "quer [-i input_file (default: stdin)] [-o output_file (default: stdout)] [-[l]ow/-[m]edium/-[q]uartile/-[h]igh " \
+    "(error correction level, "                                                                                    \
+    "default: "                                                                                                       \
+    "-l)] [-p pixels_per_module (default: 20)]"
 
-// data capacity (in bytes) for given error correction capacity and version
+// data capacity (in bytes) for given error correction level and version
 static const int CAPACITY[4][41] = {
     {0,    17,   32,   53,   78,   106,  134,  154,  190,  226,  262,  321,  367,  419,
      461,  523,  589,  647,  714,  792,  858,  929,  1003, 1091, 1171, 1273, 1367, 1465,
@@ -29,9 +28,9 @@ static const int CAPACITY[4][41] = {
      509, 565, 611, 661, 715, 751, 805, 868, 908, 982, 1030, 1112, 1168, 1228, 1283, 1351, 1423, 1499, 1579, 1663},
     {0,   7,   14,  24,  34,  44,  58,  64,  84,  98,  119, 137, 155, 177, 194, 220,  250,  280,  310,  338, 382,
      403, 439, 461, 511, 535, 593, 625, 658, 698, 742, 790, 842, 898, 958, 983, 1051, 1093, 1139, 1219, 1273}};
-static const size_t MAX_CAPACITY = 2953;
+static const int MAX_CAPACITY = 2953;
 
-// total number of data codewords for given error correction capacity and version
+// total number of data codewords for given error correction level and version
 static const int TOTAL_DATA_CODEWORDS[4][41] = {
     {0,    19,   34,   55,   80,   108,  136,  156,  194,  232,  274,  324,  370,  428,
      461,  523,  589,  647,  721,  795,  861,  932,  1006, 1094, 1174, 1276, 1370, 1468,
@@ -101,39 +100,50 @@ enum corr_level_t {
     CORR_H,
 };
 
-void save_as_ppm(bitset_t* code, int mod_sz, int padding, char* filename) {
-    FILE* file = fopen(filename, "w");
-    if (file == NULL)
-        ERR_AND_DIE("fopen");
-
-    int width = (code->width + 2 * padding) * mod_sz;
-    int height = (code->height + 2 * padding) * mod_sz;
-    if (fprintf(file, "P6 %d %d 255\n", width, height) < 0)
-        ERR_AND_DIE("fprintf");
-
-    uint8_t* buf = malloc(3 * width * height * sizeof(uint8_t));
-    memset(buf, 255, 3 * width * height * sizeof(uint8_t));
-    for (int y = padding * mod_sz; y < height - padding * mod_sz; y += mod_sz) {
-        for (int x = padding * mod_sz; x < width - padding * mod_sz; x += mod_sz) {
-            if (bitset_get(code, (y - padding * mod_sz) / mod_sz, (x - padding * mod_sz) / mod_sz)) {
-                for (int i = 0; i < mod_sz; i++) {
-                    for (int j = 0; j < 3 * mod_sz; j += 3) {
-                        int offset = 3 * width * (y + i) + 3 * x + j;
-                        memset(buf + offset, 0, 3 * sizeof(uint8_t));
-                    }
-                }
-            }
-        }
+int save_as_png(bitset_t* code, int ppm, int padding, FILE* file) {
+    png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (png_ptr == NULL)
+        return -1;
+    png_infop info_ptr = png_create_info_struct(png_ptr);
+    if (info_ptr == NULL) {
+        png_destroy_write_struct(&png_ptr, NULL);
+        return -1;
     }
-    for (int i = 0; i < 3 * width * height; i++) {
-        if (fwrite(&buf[i], sizeof(buf[i]), 1, file) == 0) {
-            free(buf);
-            ERR_AND_DIE("fwrite");
-        }
+    if (setjmp(png_jmpbuf(png_ptr))) {
+        png_destroy_write_struct(&png_ptr, &info_ptr);
+        return -1;
     }
-    free(buf);
-    if (fclose(file))
-        ERR_AND_DIE("fclose");
+
+    int width = (code->width + 2 * padding) * ppm;
+    int height = (code->height + 2 * padding) * ppm;
+    png_init_io(png_ptr, file);
+    png_set_IHDR(png_ptr, info_ptr, width, height, 1, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+    png_write_info(png_ptr, info_ptr);
+    png_set_packing(png_ptr);
+    png_set_invert_mono(png_ptr);
+
+    unsigned char image_row[width];
+    memset(image_row, 0, width * sizeof(unsigned char));
+    for (int i = 0; i < padding * ppm; i++) {
+        png_write_row(png_ptr, image_row);
+    }
+    for (int y = 0; y < code->height * ppm; y++) {
+        int x = 0;
+        for (int i = padding * ppm; i < width - padding * ppm; i++) {
+            image_row[i] = bitset_get(code, y / ppm, x / ppm);
+            x++;
+        }
+        png_write_row(png_ptr, image_row);
+    }
+    memset(image_row, 0, width * sizeof(unsigned char));
+    for (int i = 0; i < padding * ppm; i++) {
+        png_write_row(png_ptr, image_row);
+    }
+
+    png_write_end(png_ptr, NULL);
+    png_destroy_write_struct(&png_ptr, &info_ptr);
+    return 0;
 }
 
 void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level_t corr_level, int version) {
@@ -613,13 +623,20 @@ int get_penalty(bitset_t* code, int dim) {
 }
 
 int main(int argc, char** argv) {
-    int c, parse_err = 0;
+    int c, parse_err = 0, ppm = 20;
     char* input_file = NULL;
+    char* output_file = NULL;
     enum corr_level_t corr_level = CORR_L;
-    while ((c = getopt(argc, argv, "f:lmqh")) != -1) {
+    while ((c = getopt(argc, argv, "i:o:p:lmqh")) != -1) {
         switch (c) {
-            case 'f':
+            case 'i':
                 input_file = optarg;
+                break;
+            case 'o':
+                output_file = optarg;
+                break;
+            case 'p':
+                ppm = atoi(optarg);
                 break;
             case 'l':
                 corr_level = CORR_L;
@@ -646,22 +663,26 @@ int main(int argc, char** argv) {
         fprintf(stderr, "%s\n", USAGE_STR);
         return EXIT_FAILURE;
     }
+    if (ppm <= 0) {
+        fprintf(stderr, "Pixels-per-module (ppm) must be a positive integer.\n");
+        return EXIT_FAILURE;
+    }
 
     char data[MAX_CAPACITY];
     memset(data, 0, MAX_CAPACITY * sizeof(char));
-    FILE* stream = stdin;
+    FILE* in_stream = stdin;
     if (input_file != NULL) {
-        stream = fopen(input_file, "r");
-        if (stream == NULL) {
-            fprintf(stderr, "Unable to open file `%s`\n", input_file);
+        in_stream = fopen(input_file, "r");
+        if (in_stream == NULL) {
+            fprintf(stderr, "Unable to open file `%s` for reading.\n", input_file);
             return EXIT_FAILURE;
         }
     }
-    if (fread(data, sizeof(char), MAX_CAPACITY, stream) == 0) {
-        fprintf(stderr, "No data provided\n");
+    if (fread(data, sizeof(char), MAX_CAPACITY, in_stream) == 0) {
+        fprintf(stderr, "No data provided for the QR code.\n");
         return EXIT_FAILURE;
     }
-    if (fclose(stream))
+    if (fclose(in_stream))
         ERR_AND_DIE("fclose");
 
     int data_len = strlen(data);
@@ -669,7 +690,7 @@ int main(int argc, char** argv) {
     while (version <= 40 && CAPACITY[(int)corr_level][version] < data_len)
         version++;
     if (version > 40) {
-        fprintf(stderr, "Input is too long to be stored in a QR code with the specified error correction capacity\n");
+        fprintf(stderr, "Input is too long to be stored in a QR code with the specified error correction level.\n");
         return EXIT_FAILURE;
     }
 
@@ -704,9 +725,19 @@ int main(int argc, char** argv) {
     apply_mask(&code, dim, &blocked, best_mask_i);
     draw_format_info(&code, dim, best_mask_i, corr_level);
 
-    save_as_ppm(&code, 20, 10, "code.ppm");
+    FILE* out_stream = stdout;
+    if (output_file != NULL) {
+        out_stream = fopen(output_file, "w");
+        if (out_stream == NULL) {
+            fprintf(stderr, "Unable to open file `%s` for writing.\n", output_file);
+            return EXIT_FAILURE;
+        }
+    }
+    save_as_png(&code, ppm, dim / 5, out_stream);
     bitset_free(&code);
     bitset_free(&blocked);
+    if (fclose(out_stream))
+        ERR_AND_DIE("fclose");
 
     return EXIT_SUCCESS;
 }
