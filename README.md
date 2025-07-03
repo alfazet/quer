@@ -14,4 +14,6 @@ A QR code generator made entirely from scratch, following the [ISO-18004](https:
 # cd quer
 # make install
 ```
+The only "external" dependency needed is `libpng`. 
+
 To uninstall, run `make uninstall`.

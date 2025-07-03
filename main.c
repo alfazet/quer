@@ -1,6 +1,5 @@
 #include <getopt.h>
 #include <limits.h>
-#include <math.h>
 #include <png.h>
 
 #include "bitset.h"
@@ -614,8 +613,8 @@ int get_penalty(bitset_t* code, int dim) {
         for (int x = 0; x < dim; x++)
             dark_count += bitset_get(code, y, x);
     }
-    double proportion = (double)dark_count / (dim * dim) * 100;
-    penalty += 10 * (int)floor(fabs(proportion - 50) / 5);
+    int proportion = (int)((double)dark_count / (dim * dim) * 100);
+    penalty += 10 * abs(proportion - 50) / 5;
 
     return penalty;
 }

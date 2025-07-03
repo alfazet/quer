@@ -2,7 +2,7 @@ CC=gcc
 FLAGS=-Wall -Wextra -Wpedantic -Wshadow -O3
 TARGET=quer.out
 OBJS=main.o bitset.o bitstream.o reed_solomon.o
-LD_LIBS= -lm -lpng
+LD_LIBS= -lpng
 
 PREFIX ?= /usr/bin
 
