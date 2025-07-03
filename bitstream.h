@@ -6,4 +6,5 @@ typedef struct bitstream_t {
     int len_bits;
 } bitstream_t;
 
+// add lower n_bits of value to bitstream
 void add_bits_to_stream(bitstream_t* bitstream, int value, int n_bits);

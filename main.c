@@ -12,7 +12,7 @@
      fprintf(stderr, "\n"), exit(EXIT_FAILURE))
 #define USAGE_STR                                                                                                     \
     "quer [-i input_file (default: stdin)] [-o output_file (default: stdout)] [-[l]ow/-[m]edium/-[q]uartile/-[h]igh " \
-    "(error correction level, "                                                                                    \
+    "(error correction level, "                                                                                       \
     "default: "                                                                                                       \
     "-l)] [-p pixels_per_module (default: 20)]"
 
@@ -71,6 +71,7 @@ static const int TOTAL_BLOCKS[4][41] = {
      25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81},
 };
 
+// lookup table for encoded version information
 static const int VERSION_INFO[41] = {0,       0,       0,       0,       0,       0,       0,       0x07C94, 0x085BC,
                                      0x09A99, 0x0A4D3, 0x0BBF6, 0x0C762, 0x0D847, 0x0E60D, 0x0F928, 0x10B78, 0x1145D,
                                      0x12A17, 0x13532, 0x149A6, 0x15683, 0x168C9, 0x177EC, 0x18EC4, 0x191E1, 0x1AFAB,
@@ -91,7 +92,7 @@ int mask4(int i, int j) { return ((i / 2 + j / 3) % 2) == 0; }
 int mask5(int i, int j) { return ((i * j) % 2 + (i * j) % 3) == 0; }
 int mask6(int i, int j) { return (((i * j) % 2 + (i * j) % 3) % 2) == 0; }
 int mask7(int i, int j) { return (((i + j) % 2 + (i * j) % 3) % 2) == 0; }
-int (*masks[8])(int, int) = {mask0, mask1, mask2, mask3, mask4, mask5, mask6, mask7};
+static int (*masks[8])(int, int) = {mask0, mask1, mask2, mask3, mask4, mask5, mask6, mask7};
 
 enum corr_level_t {
     CORR_L,
@@ -147,7 +148,6 @@ int save_as_png(bitset_t* code, int ppm, int padding, FILE* file) {
 }
 
 void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level_t corr_level, int version) {
-    // byte mode indicator (for now only byte mode is supported)
     add_bits_to_stream(bitstream, 0b0100, 4);
     add_bits_to_stream(bitstream, data_len, (version <= 9 ? 8 : 16));
     for (int i = 0; i < data_len; i++) {
@@ -398,12 +398,10 @@ void draw_format_info(bitset_t* code, int dim, int mask_i, enum corr_level_t cor
         case CORR_Q:
             corr_level_i = 0b11;
             break;
-        case CORR_H:
+        default:
             corr_level_i = 0b10;
-            break;
     }
     int info_code = (corr_level_i << 3) | mask_i;
-    // division of polynomials encoded in bitmasks
     int rem = info_code, gen_poly = 0b0000010100110111;
     for (int i = 0; i < 10; i++) {
         rem = (rem << 1) ^ ((rem >> 9) * gen_poly);
@@ -655,8 +653,8 @@ int main(int argc, char** argv) {
                 parse_err = 1;
                 break;
             case '?':
+            default:
                 parse_err = 1;
-                break;
         }
     }
     if (parse_err) {

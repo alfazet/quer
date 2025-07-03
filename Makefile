@@ -1,19 +1,26 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -Wpedantic -Wshadow -g
+FLAGS=-Wall -Wextra -Wpedantic -Wshadow -O3
 TARGET=quer.out
 OBJS=main.o bitset.o bitstream.o reed_solomon.o
 LD_LIBS= -lm -lpng
-LD_FLAGS=-fsanitize=address,undefined -fanalyzer
+
+PREFIX ?= /usr/bin
 
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(LD_FLAGS) $(LD_LIBS) -o $@ $^
+	$(CC) $(LD_LIBS) -o $@ $^
 
 %.o: %.c %.h
-	$(CC) $(LD_FLAGS) $(CFLAGS) -o $@ -c $<
+	$(CC) $(FLAGS) -o $@ -c $<
 
 clean:
 	rm -f $(TARGET)
 
-.PHONY: all clean
+install: all
+	install -D quer.out $(DESTDIR)$(PREFIX)/quer
+
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/quer
+
+.PHONY: all clean install uninstall

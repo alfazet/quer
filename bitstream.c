@@ -1,6 +1,5 @@
 #include "bitstream.h"
 
-// add lower n_bits of value to bitstream
 void add_bits_to_stream(bitstream_t* bitstream, int value, int n_bits) {
     int tail = bitstream->len_bits % 8;
     int b = n_bits - 1;
