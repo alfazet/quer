@@ -15,10 +15,7 @@ OBJS=		main.o bitset.o bitstream.o reed_solomon.o
 CSTD=		c23
 LIBS=		-lpng
 
-# Default target
 all:		$(TARGET)
-
-# Header depedencies
 bitset.o:	bitset.h
 bitstream.o:	bitstream.h
 main.o:		bitset.h bitstream.h reed_solomon.h
@@ -31,9 +28,8 @@ $(TARGET): $(OBJS)
 	$(CC) -c -o $@ -std=$(CSTD) $(CFLAGS) $(INCLUDES) $<
 
 clean:
-	rm -f $(OBJS)
+	rm -f $(OBJS) $(TARGET)
 
 install: all
 	install -d -m755 $(DESTDIR)$(PREFIX)/bin
 	install -s -m755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/quer
-
