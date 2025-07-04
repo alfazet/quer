@@ -1,26 +1,39 @@
-CC=gcc
-FLAGS=-Wall -Wextra -Wpedantic -Wshadow -O3
-TARGET=quer.out
-OBJS=main.o bitset.o bitstream.o reed_solomon.o
-LD_LIBS= -lpng
+.POSIX:
+.SUFFIXES:	.c .o
+.PHONY:		all clean install
 
-PREFIX ?= /usr/bin
+# Build configuration, override on make invocation
+CC=		cc
+CFLAGS=		-Wall -Wextra -pedantic -O2
+INCLUDES=	-I/usr/local/include
+LDFLAGS=	-L/usr/local/lib
+PREFIX=		/usr/local
 
-all: $(TARGET)
+# Project configuration, do not override
+TARGET=		quer.out
+OBJS=		main.o bitset.o bitstream.o reed_solomon.o
+CSTD=		c23
+LIBS=		-lpng
+
+# Default target
+all:		$(TARGET)
+
+# Header depedencies
+bitset.o:	bitset.h
+bitstream.o:	bitstream.h
+main.o:		bitset.h bitstream.h reed_solomon.h
+reed_solomon.o:	reed_solomon.h
 
 $(TARGET): $(OBJS)
-	$(CC) $(LD_LIBS) -o $@ $^
+	$(CC) -o $@ -std=$(CSTD) $(CFLAGS) $(LDFLAGS) $(OBJS) $(LIBS)
 
-%.o: %.c %.h
-	$(CC) $(FLAGS) -o $@ -c $<
+.c.o:
+	$(CC) -c -o $@ -std=$(CSTD) $(CFLAGS) $(INCLUDES) $<
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(OBJS)
 
 install: all
-	install -D quer.out $(DESTDIR)$(PREFIX)/quer
+	install -d -m755 $(DESTDIR)$(PREFIX)/bin
+	install -s -m755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/quer
 
-uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/quer
-
-.PHONY: all clean install uninstall
