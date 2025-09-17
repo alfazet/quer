@@ -100,7 +100,7 @@ enum corr_level_t {
     CORR_H,
 };
 
-int save_as_png(bitset_t* code, int ppm, int padding, FILE* file) {
+int save_as_png(bitset_t *code, int ppm, int padding, FILE *file) {
     png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (png_ptr == NULL)
         return -1;
@@ -146,7 +146,7 @@ int save_as_png(bitset_t* code, int ppm, int padding, FILE* file) {
     return 0;
 }
 
-void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level_t corr_level, int version) {
+void fill_data(bitstream_t *bitstream, char *data, int data_len, enum corr_level_t corr_level, int version) {
     add_bits_to_stream(bitstream, 0b0100, 4);
     add_bits_to_stream(bitstream, data_len, (version <= 9 ? 8 : 16));
     for (int i = 0; i < data_len; i++) {
@@ -164,8 +164,8 @@ void fill_data(bitstream_t* bitstream, char* data, int data_len, enum corr_level
     }
 }
 
-void add_error_correction_and_interleave(bitstream_t* bitstream, enum corr_level_t corr_level, int version,
-                                         uint8_t* res) {
+void add_error_correction_and_interleave(bitstream_t *bitstream, enum corr_level_t corr_level, int version,
+                                         uint8_t *res) {
     int n_blocks = TOTAL_BLOCKS[(int)corr_level][version];
     int n_corr_codewords_per_block = CORR_CODEWORDS_PER_BLOCK[(int)corr_level][version];
     int n_all_codewords = TOTAL_AVAILABLE_MODULES[version] / 8;
@@ -199,7 +199,7 @@ void add_error_correction_and_interleave(bitstream_t* bitstream, enum corr_level
     }
 }
 
-void draw_separator(bitset_t* code, int sx, int sy, bitset_t* blocked) {
+void draw_separator(bitset_t *code, int sx, int sy, bitset_t *blocked) {
     for (int y = 0; y < 8; y++) {
         for (int x = 0; x < 8; x++) {
             bitset_unset(code, sy + y, sx + x);
@@ -208,7 +208,7 @@ void draw_separator(bitset_t* code, int sx, int sy, bitset_t* blocked) {
     }
 }
 
-void draw_finder_pattern(bitset_t* code, int sx, int sy, bitset_t* blocked) {
+void draw_finder_pattern(bitset_t *code, int sx, int sy, bitset_t *blocked) {
     for (int y = 0; y < 7; y++) {
         for (int x = 0; x < 7; x++) {
             bitset_set(code, sy + y, sx + x);
@@ -229,7 +229,7 @@ void draw_finder_pattern(bitset_t* code, int sx, int sy, bitset_t* blocked) {
     }
 }
 
-void draw_timing_patterns(bitset_t* code, int sx, int sy, bitset_t* blocked) {
+void draw_timing_patterns(bitset_t *code, int sx, int sy, bitset_t *blocked) {
     int x = sx + 7 + 1;
     int y = sy + 7 - 1;
     int flip = 1;
@@ -268,7 +268,7 @@ int get_alignment_pattern_positions(int version, int positions[7]) {
     return count;
 }
 
-void draw_alignment_patterns(bitset_t* code, int version, bitset_t* blocked) {
+void draw_alignment_patterns(bitset_t *code, int version, bitset_t *blocked) {
     int pos[7];
     int count = get_alignment_pattern_positions(version, pos);
     for (int i = 0; i < count; i++) {
@@ -295,7 +295,7 @@ void draw_alignment_patterns(bitset_t* code, int version, bitset_t* blocked) {
     }
 }
 
-void draw_version_pattern(bitset_t* code, int version, int dim, bitset_t* blocked) {
+void draw_version_pattern(bitset_t *code, int version, int dim, bitset_t *blocked) {
     int version_info = VERSION_INFO[version];
     for (int y = 0; y < 6; y++) {
         for (int x = 0; x < 3; x++) {
@@ -313,7 +313,7 @@ void draw_version_pattern(bitset_t* code, int version, int dim, bitset_t* blocke
     }
 }
 
-void block_format_info(int dim, bitset_t* blocked) {
+void block_format_info(int dim, bitset_t *blocked) {
     for (int x = 0; x < 9; x++)
         bitset_set(blocked, 8, x);
     for (int y = 0; y < 9; y++)
@@ -324,7 +324,7 @@ void block_format_info(int dim, bitset_t* blocked) {
         bitset_set(blocked, dim - 1 - y, 8);
 }
 
-void draw_functional_patterns(bitset_t* code, int version, int dim, bitset_t* blocked) {
+void draw_functional_patterns(bitset_t *code, int version, int dim, bitset_t *blocked) {
     int separator_coords_x[3] = {0, dim - 8, 0};
     int separator_coords_y[3] = {0, 0, dim - 8};
     for (int i = 0; i < 3; i++)
@@ -344,7 +344,7 @@ void draw_functional_patterns(bitset_t* code, int version, int dim, bitset_t* bl
     bitset_set(blocked, dim - 8, 8);
 }
 
-void draw_data(bitset_t* code, uint8_t* data, int data_len, int dim, bitset_t* blocked) {
+void draw_data(bitset_t *code, uint8_t *data, int data_len, int dim, bitset_t *blocked) {
     int bit = 7, byte = 0;
     for (int col = dim - 1; col >= 1; col -= 2) {
         // the "parity" changes after column 6 (a column fully devoted to function patterns)
@@ -373,7 +373,7 @@ void draw_data(bitset_t* code, uint8_t* data, int data_len, int dim, bitset_t* b
     // we ignore remainder bits because they've already been zeroed by default
 }
 
-void apply_mask(bitset_t* code, int dim, bitset_t* blocked, int mask_i) {
+void apply_mask(bitset_t *code, int dim, bitset_t *blocked, int mask_i) {
     for (int y = 0; y < dim; y++) {
         for (int x = 0; x < dim; x++) {
             if (!bitset_get(blocked, y, x)) {
@@ -385,7 +385,7 @@ void apply_mask(bitset_t* code, int dim, bitset_t* blocked, int mask_i) {
     }
 }
 
-void draw_format_info(bitset_t* code, int dim, int mask_i, enum corr_level_t corr_level) {
+void draw_format_info(bitset_t *code, int dim, int mask_i, enum corr_level_t corr_level) {
     int corr_level_i;
     switch (corr_level) {
         case CORR_L:
@@ -447,7 +447,7 @@ void draw_format_info(bitset_t* code, int dim, int mask_i, enum corr_level_t cor
     }
 }
 
-int check_finder_pattern_ver(bitset_t* code, int y, int x, int r, int dir) {
+int check_finder_pattern_ver(bitset_t *code, int y, int x, int r, int dir) {
     int pos = y;
     for (int i = 0; i < r; i++) {
         if (!bitset_get(code, pos, x))
@@ -477,7 +477,7 @@ int check_finder_pattern_ver(bitset_t* code, int y, int x, int r, int dir) {
     return 1;
 }
 
-int check_finder_pattern_hor(bitset_t* code, int y, int x, int r, int dir) {
+int check_finder_pattern_hor(bitset_t *code, int y, int x, int r, int dir) {
     int pos = x;
     for (int i = 0; i < r; i++) {
         if (!bitset_get(code, y, pos))
@@ -507,7 +507,7 @@ int check_finder_pattern_hor(bitset_t* code, int y, int x, int r, int dir) {
     return 1;
 }
 
-int get_penalty(bitset_t* code, int dim) {
+int get_penalty(bitset_t *code, int dim) {
     int penalty = 0;
     // monochromatic streaks of >= 5 modules
     for (int y = 0; y < dim; y++) {
@@ -619,10 +619,10 @@ int get_penalty(bitset_t* code, int dim) {
     return penalty;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     int c, parse_err = 0, ppm = 20;
-    char* input_file = NULL;
-    char* output_file = NULL;
+    char *input_file = NULL;
+    char *output_file = NULL;
     enum corr_level_t corr_level = CORR_L;
     while ((c = getopt(argc, argv, "i:o:p:lmqh")) != -1) {
         switch (c) {
@@ -667,7 +667,7 @@ int main(int argc, char** argv) {
 
     char data[MAX_CAPACITY];
     memset(data, 0, MAX_CAPACITY * sizeof(char));
-    FILE* in_stream = stdin;
+    FILE *in_stream = stdin;
     if (input_file != NULL) {
         in_stream = fopen(input_file, "r");
         if (in_stream == NULL) {
@@ -722,7 +722,7 @@ int main(int argc, char** argv) {
     apply_mask(&code, dim, &blocked, best_mask_i);
     draw_format_info(&code, dim, best_mask_i, corr_level);
 
-    FILE* out_stream = stdout;
+    FILE *out_stream = stdout;
     if (output_file != NULL) {
         out_stream = fopen(output_file, "w");
         if (out_stream == NULL) {
