@@ -8,12 +8,15 @@
 #define CELL_SIZE 4
 #define ARENA_SIZE (1 << 16)
 
+// arena allocator
 typedef struct arena_t {
     size_t size;
     size_t offset;
     void* start;
 } arena_t;
 
+// a 2D bitset (binary matrix) with width * height fields
+// to save memory, each 4x4 submatrix is stored as a single 16-bit integer
 typedef struct bitset_t {
     int width;
     int height;
@@ -31,4 +34,4 @@ void bitset_negate(bitset_t* bset, int r, int c);
 void bitset_free(bitset_t* bset);
 void bitset_print(bitset_t* bset);
 
-#endif
+#endif  // BITSET_H

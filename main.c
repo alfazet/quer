@@ -274,6 +274,7 @@ void draw_alignment_patterns(bitset_t *code, int version, bitset_t *blocked) {
     for (int i = 0; i < count; i++) {
         for (int j = 0; j < count; j++) {
             // these ones would overlap with the finder patterns
+            // so we can't draw them
             if ((i == 0 && j == 0) || (i == 0 && j == count - 1) || (i == count - 1 && j == 0))
                 continue;
 
@@ -401,6 +402,7 @@ void draw_format_info(bitset_t *code, int dim, int mask_i, enum corr_level_t cor
             corr_level_i = 0b10;
     }
     int info_code = (corr_level_i << 3) | mask_i;
+    // magic values from the spec
     int rem = info_code, gen_poly = 0b0000010100110111;
     for (int i = 0; i < 10; i++) {
         rem = (rem << 1) ^ ((rem >> 9) * gen_poly);
@@ -648,7 +650,7 @@ int main(int argc, char **argv) {
                 corr_level = CORR_H;
                 break;
             case ':':
-                fprintf(stderr, "Option -%c requires an argument.\n", optopt);
+                fprintf(stderr, "option -%c requires an argument\n", optopt);
                 parse_err = 1;
                 break;
             case '?':
@@ -661,7 +663,7 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
     if (ppm <= 0) {
-        fprintf(stderr, "Pixels-per-module (ppm) must be a positive integer.\n");
+        fprintf(stderr, "pixels-per-module (ppm) must be a positive integer\n");
         return EXIT_FAILURE;
     }
 
@@ -671,12 +673,12 @@ int main(int argc, char **argv) {
     if (input_file != NULL) {
         in_stream = fopen(input_file, "r");
         if (in_stream == NULL) {
-            fprintf(stderr, "Unable to open file `%s` for reading.\n", input_file);
+            fprintf(stderr, "unable to open file `%s` for reading\n", input_file);
             return EXIT_FAILURE;
         }
     }
     if (fread(data, sizeof(char), MAX_CAPACITY, in_stream) == 0) {
-        fprintf(stderr, "No data provided for the QR code.\n");
+        fprintf(stderr, "no data provided for the QR code\n");
         return EXIT_FAILURE;
     }
     if (fclose(in_stream))
@@ -687,7 +689,7 @@ int main(int argc, char **argv) {
     while (version <= 40 && CAPACITY[(int)corr_level][version] < data_len)
         version++;
     if (version > 40) {
-        fprintf(stderr, "Input is too long to be stored in a QR code with the specified error correction level.\n");
+        fprintf(stderr, "input is too long to be stored in a QR code with the specified error correction level\n");
         return EXIT_FAILURE;
     }
 
@@ -726,10 +728,12 @@ int main(int argc, char **argv) {
     if (output_file != NULL) {
         out_stream = fopen(output_file, "w");
         if (out_stream == NULL) {
-            fprintf(stderr, "Unable to open file `%s` for writing.\n", output_file);
+            fprintf(stderr, "unable to open file `%s` for writing\n", output_file);
             return EXIT_FAILURE;
         }
     }
+    // some padding so that scanners can distinguish the code from its surroundings
+    // 20% of the QR code's width seems to be good enough, without making the image too large
     save_as_png(&code, ppm, dim / 5, out_stream);
     bitset_free(&code);
     bitset_free(&blocked);
